@@ -4,6 +4,7 @@ import express from 'express';
 import cors from 'cors';
 import path from 'path'
 import authRouter from './google-auth.js';
+import microsoftAuthRouter from './microsoft-auth.js';
 import cookieParser from 'cookie-parser';
 
 
@@ -26,6 +27,7 @@ app.get('*', (req, res) => {
 */
 
 app.use('/google', authRouter);
+app.use('/microsoft', microsoftAuthRouter);
 
 const PORT = process.env.PORT || 3000;
 
