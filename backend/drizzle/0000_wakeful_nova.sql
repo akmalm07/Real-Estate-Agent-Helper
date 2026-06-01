@@ -2,7 +2,7 @@ CREATE TYPE "public"."conversation_type" AS ENUM('sms', 'email');--> statement-b
 CREATE TYPE "public"."entity_type" AS ENUM('lead', 'conversation', 'email', 'sms', 'task', 'property', 'custom');--> statement-breakpoint
 CREATE TYPE "public"."message_direction" AS ENUM('inbound', 'outbound');--> statement-breakpoint
 CREATE TYPE "public"."property_status" AS ENUM('draft', 'open', 'pending_deletion', 'archived');--> statement-breakpoint
-CREATE TYPE "public"."provider" AS ENUM('google', 'outlook');--> statement-breakpoint
+CREATE TYPE "public"."provider" AS ENUM('google', 'microsoft');--> statement-breakpoint
 CREATE TABLE "activity_logs" (
 	"id" serial PRIMARY KEY NOT NULL,
 	"lead_id" integer NOT NULL,

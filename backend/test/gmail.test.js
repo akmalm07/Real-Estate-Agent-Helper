@@ -31,7 +31,10 @@ function getTestOauth()
   const oauthResult = await db
     .select()
     .from(oauthAccounts)
-    .where(eq(oauthAccounts.userId, user.id))
+    .where(and(
+      eq(oauthAccounts.userId, user.id),
+      eq(oauthAccounts.provider, 'google'))
+    )
     .limit(1);
 
   return oauthResult[0];

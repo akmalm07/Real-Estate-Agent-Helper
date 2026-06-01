@@ -18,7 +18,7 @@ import { sql } from 'drizzle-orm'
 |--------------------------------------------------------------------------
 */
 
-export const providerEnum = pgEnum('provider', ['google', 'outlook'])
+export const providerEnum = pgEnum('provider', ['google', 'microsoft'])
 
 export const convoTypeEnum = pgEnum('conversation_type', ['sms', 'email'])
 

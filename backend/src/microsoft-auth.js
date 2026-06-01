@@ -11,9 +11,7 @@ const clientSecret = process.env.MICROSOFT_CLIENT_SECRET;
 const redirectUri = process.env.MICROSOFT_REDIRECT_URI;
 
 // Microsoft expects space‑separated scopes in the authorization URL.
-const rawScopes = process.env.MICROSOFT_SCOPES
-  ? process.env.MICROSOFT_SCOPES.split(',')
-  : ['offline_access', 'openid', 'profile', 'email', 'https://graph.microsoft.com/User.Read'];
+const rawScopes = process.env.MICROSOFT_SCOPES.split(',');
 
 const SCOPES = rawScopes.join(' ');
 

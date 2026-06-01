@@ -6,7 +6,7 @@ import { db } from '../db/index.js'
 import { users, oauthAccounts } from '../db/schema.js'
 import { createToken, verifyToken } from './jwt.js'
 
-const authRouter = Router();
+const googleAuthRouter = Router();
 
 const clientId = process.env.GOOGLE_CLIENT_ID;
 const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
@@ -22,7 +22,7 @@ const BACKEND_URL = process.env.BACKEND_URL;
 |--------------------------------------------------------------------------
 */
 
-authRouter.get('/login', (req, res) => {
+googleAuthRouter.get('/login', (req, res) => {
   const token = req.cookies.token;
 
   if (token) {
@@ -48,7 +48,7 @@ authRouter.get('/login', (req, res) => {
 
 
 
-authRouter.get('/auth', async (req, res) => {
+googleAuthRouter.get('/auth', async (req, res) => {
 
   const code = req.query.code;
 
@@ -173,7 +173,7 @@ authRouter.get('/auth', async (req, res) => {
 });
 
 
-authRouter.get('/status', (req, res) => {
+googleAuthRouter.get('/status', (req, res) => {
   const token = req.cookies.token;
 
   if (!token) {
@@ -197,7 +197,7 @@ authRouter.get('/status', (req, res) => {
 
 
 
-authRouter.get('/logout', (req, res) => {
+googleAuthRouter.get('/logout', (req, res) => {
   try {
     res.clearCookie('token');
     res.send('Logged out successfully.');
@@ -206,33 +206,4 @@ authRouter.get('/logout', (req, res) => {
   }
 });
 
-export default authRouter;
-
-
-
-
-/*
-export async function getAuthClient(providerUserId) {
-  const account = await db
-    .select()
-    .from(oauthAccounts)
-    .where(eq(oauthAccounts.providerUserId, providerUserId))
-    .limit(1);
-
-  if (!account)
-    throw new Error('No Google account connected');
-
-  const oauth2Client =
-    new OAuth2Client(
-      clientId,
-      clientSecret,
-      redirectUri
-    );
-
-  oauth2Client.setCredentials({
-    refresh_token: account.refreshToken
-  });
-
-  return oauth2Client;
-}
-  */
+export default googleAuthRouter;

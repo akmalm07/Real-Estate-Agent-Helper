@@ -1,5 +1,5 @@
 {
-  "id": "00c905e2-e8ab-40c6-9bc5-d1666b3a2efd",
+  "id": "3944feff-e970-41bb-9445-64f22c52f140",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "version": "7",
   "dialect": "postgresql",
@@ -762,7 +762,7 @@
       "schema": "public",
       "values": [
         "google",
-        "outlook"
+        "microsoft"
       ]
     }
   },
