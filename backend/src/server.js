@@ -6,6 +6,8 @@ import path from 'path'
 import googleAuthRouter from './google-auth.js';
 import microsoftAuthRouter from './microsoft-auth.js';
 import cookieParser from 'cookie-parser';
+import webhookRouter from './webhook.js'
+import internalMaintinenceRouter from './internal-maintinence.js'
 
 
 const app = express();
@@ -28,6 +30,8 @@ app.get('*', (req, res) => {
 
 app.use('/google', googleAuthRouter);
 app.use('/microsoft', microsoftAuthRouter);
+app.use('/webhook', webhookRouter);
+app.use('internal/maintinence', internalMaintinenceRouter);
 
 const PORT = process.env.PORT || 3000;
 

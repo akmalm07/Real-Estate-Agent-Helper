@@ -67,9 +67,13 @@ export const oauthAccounts = pgTable('oauth_accounts', {
   provider: providerEnum('provider')
     .notNull(),
 
-  providerUserId: text('provider_user_id'),
+  providerUserId: text('provider_user_id')
+    .notNull(),
 
-  refreshToken: text('refresh_token'),
+  refreshToken: text('refresh_token')
+    .notNull(),
+  
+  gmailWatchExpiration: timestamp('gmail_watch_expiration'),
 
   createdAt: timestamp('created_at')
     .defaultNow()

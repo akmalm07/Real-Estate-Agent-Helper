@@ -1,6 +1,5 @@
 import { Router } from 'express';
 import { OAuth2Client } from 'google-auth-library';
-import fs from 'fs';
 import { eq, and } from 'drizzle-orm';
 import { db } from '../db/index.js'
 import { users, oauthAccounts } from '../db/schema.js'
@@ -14,7 +13,72 @@ const redirectUri = process.env.GOOGLE_REDIRECT_URI;
 
 const SCOPES = process.env.GOOGLE_SCOPES.split(',');
 
-const BACKEND_URL = process.env.BACKEND_URL;
+
+/*
+|--------------------------------------------------------------------------
+| Helpers
+|--------------------------------------------------------------------------
+*/
+
+
+function createGoogleUrl(promptConsent = false) {
+  const oauth2Client = new OAuth2Client(
+    clientId,
+    clientSecret,
+    redirectUri
+  );
+
+  let authUrl;
+
+  if (!promptConsent) {
+    authUrl = oauth2Client.generateAuthUrl({
+      access_type: 'offline',
+      scope: SCOPES,
+    });
+  } else {
+    authUrl = oauth2Client.generateAuthUrl({
+      access_type: 'offline',
+      scope: SCOPES,
+      prompt: 'consent',
+    });
+  }
+  
+  return authUrl;
+}
+
+async function setupGmailWatch({ oauth2Client, oauthDbId }) {
+  const accessToken = await oauth2Client.getAccessToken();
+
+  const response = await fetch(
+    'https://gmail.googleapis.com/gmail/v1/users/me/watch',
+    {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${accessToken.token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        topicName: process.env.GMAIL_TOPIC,
+        labelIds: ['INBOX'],
+      }),
+    }
+  );
+
+  
+  if (!response.ok) {
+    throw new Error(await response.text());
+  }
+
+  const json = await response.json();
+
+  console.log(json.historyId);
+
+  const sixDaysMS = 6 * 24 * 60 * 60 * 1000;
+
+  await db.update(oauthAccounts).set({
+    gmailWatchExpiration: new Date(Date.now() + sixDaysMS),
+    }).where(eq(oauthAccounts.id, oauthDbId));
+}
 
 /*
 |--------------------------------------------------------------------------
@@ -31,18 +95,9 @@ googleAuthRouter.get('/login', (req, res) => {
       return res.redirect('/dashboard');
     } catch {}
   }
-
-  const oauth2Client = new OAuth2Client(
-    clientId,
-    clientSecret,
-    redirectUri
-  );
-
-  const authUrl = oauth2Client.generateAuthUrl({
-    access_type: 'offline',
-    scope: SCOPES,
-  });
   
+  const authUrl = createGoogleUrl();
+
   res.redirect(authUrl);
 });
 
@@ -109,8 +164,13 @@ googleAuthRouter.get('/auth', async (req, res) => {
         )
       )
       .limit(1);
-
+    
+    let oauthDbId;
+    
     if (existingAccount) {
+      
+      oauthDbId = existingAccount.accountId;
+
       if (userInfo.email !== existingAccount.email) {
         return res.status(400).json({
           error: 'Failed to verify email',
@@ -124,27 +184,44 @@ googleAuthRouter.get('/auth', async (req, res) => {
         await db
           .update(oauthAccounts)
           .set({
-            refreshToken,
+            refreshToken: refreshToken,
           })
-          .where(eq(oauthAccounts.id, existingAccount.accountId));
+          .where(eq(oauthAccounts.id, existingAccount.accountId))
       }
     } else {
-      const [user] = await db
-        .insert(users)
-        .values({
-          name: userInfo.name,
-          email: userInfo.email,
-        })
-        .returning({
-          id: users.id,
-        });
 
-      await db.insert(oauthAccounts).values({
+      if (!refreshToken)
+      {
+        const authUrl = createGoogleUrl(true);
+        return res.redirect(authUrl);
+      }
+
+      let userDb;
+      try {
+        userDb = await db
+          .insert(users)
+          .values({
+            name: userInfo.name,
+            email: userInfo.email,
+          })
+          .returning({
+            id: users.id,
+          });
+      } catch {
+        return res.status(409).send('User already exists. Try authenticating with Microsoft');
+      }
+      const user = userDb[0];
+
+      const [oauthAccount] = await db.insert(oauthAccounts).values({
         userId: user.id,
         provider: 'google',
         providerUserId: userInfo.id,
-        refreshToken: refreshToken ?? null,
+        refreshToken: refreshToken,
+      }).returning({
+        id: oauthAccounts.id,
       });
+
+      oauthDbId = oauthAccount.id;
 
       userId = user.id;
       userFirstTime = true;
@@ -154,14 +231,20 @@ googleAuthRouter.get('/auth', async (req, res) => {
 
     res.cookie('token', token, {
       httpOnly: true,
-      secure: false, // change to true in production with HTTPS
+      secure: false, // TODO: change to true in production with HTTPS
       sameSite: 'lax',
     });
+    
+    try {
+      setupGmailWatch({
+        oauth2Client: oauth2Client,
+        oauthDbId: oauthDbId,
+      });
+    } catch {
+      return res.status(500).send('Error setting up watch for Pub/Sub');
+    }
 
-    return res.json({
-      message: 'User authenticated',
-      firstTime: userFirstTime,
-    });
+    return res.redirect(`/onboard?firstTime=${userFirstTime}`);
 
   } catch (err) {
     console.error('OAuth callback error:', err);

@@ -3,6 +3,10 @@ import { eq, and } from 'drizzle-orm';
 import { db } from '../db/index.js';
 import { users, oauthAccounts } from '../db/schema.js';
 import { createToken, verifyToken } from './jwt.js';
+import { msalClient } from './outlook.js'
+import { ConfidentialClientApplication } from '@azure/msal-node';
+
+
 
 const microsoftAuthRouter = Router();
 
@@ -11,9 +15,37 @@ const clientSecret = process.env.MICROSOFT_CLIENT_SECRET;
 const redirectUri = process.env.MICROSOFT_REDIRECT_URI;
 
 // Microsoft expects space‑separated scopes in the authorization URL.
-const rawScopes = process.env.MICROSOFT_SCOPES.split(',');
+const SCOPES_LIST = process.env.MICROSOFT_SCOPES.split(',');
+const SCOPES = SCOPES_LIST.join(' ');
 
-const SCOPES = rawScopes.join(' ');
+
+/*
+|--------------------------------------------------------------------------
+| Helpers
+|--------------------------------------------------------------------------
+*/
+
+
+async function createMicrosoftUrl(promptConsent = false) {
+  
+  let authUrl;
+
+  if (!promptConsent) {
+    authUrl = await msalClient.getAuthCodeUrl({
+      scopes: SCOPES_LIST,
+      redirectUri: process.env.MICROSOFT_REDIRECT_URI,
+    });    
+    
+  } else {
+    authUrl = await msalClient.getAuthCodeUrl({
+      scopes: SCOPES_LIST,
+      prompt: 'consent',
+      redirectUri: process.env.MICROSOFT_REDIRECT_URI,
+    });
+  }
+  
+  return authUrl;
+}
 
 /*
 |--------------------------------------------------------------------------
@@ -21,7 +53,7 @@ const SCOPES = rawScopes.join(' ');
 |--------------------------------------------------------------------------
 */
 
-microsoftAuthRouter.get('/login', (req, res) => {
+microsoftAuthRouter.get('/login', async (req, res) => {
   const token = req.cookies.token;
 
   if (token) {
@@ -31,17 +63,12 @@ microsoftAuthRouter.get('/login', (req, res) => {
     } catch {}
   }
 
-  const authUrl =
-    `https://login.microsoftonline.com/common/oauth2/v2.0/authorize?` +
-    new URLSearchParams({
-      response_type: 'code',
-      client_id: clientId,
-      redirect_uri: redirectUri,
-      scope: SCOPES,
-    }).toString();
+  const authUrl = await createMicrosoftUrl();
 
   res.redirect(authUrl);
 });
+
+
 
 microsoftAuthRouter.get('/auth', async (req, res) => {
   const code = req.query.code;
@@ -67,6 +94,7 @@ microsoftAuthRouter.get('/auth', async (req, res) => {
           code,
           redirect_uri: redirectUri,
           grant_type: 'authorization_code',
+          scope: SCOPES,
         }).toString(),
       }
     );
@@ -79,14 +107,13 @@ microsoftAuthRouter.get('/auth', async (req, res) => {
     const tokens = await tokenResponse.json();
     const accessToken = tokens.access_token;
     const refreshToken = tokens.refresh_token; // may be undefined if scope offline_access not present
-
+        
     // Fetch the user's Microsoft profile.
     const userRes = await fetch('https://graph.microsoft.com/v1.0/me', {
       headers: {
         Authorization: `Bearer ${accessToken}`,
       },
     });
-
     if (!userRes.ok) {
       console.error(await userRes.text());
       return res.status(400).send('Failed to get user info');
@@ -143,21 +170,33 @@ microsoftAuthRouter.get('/auth', async (req, res) => {
       }
     } else {
       // First‑time sign‑in — create the local user and link the Microsoft account.
-      const [user] = await db
-        .insert(users)
-        .values({
-          name: userInfo.displayName,
-          email: userEmail,
-        })
-        .returning({
-          id: users.id,
-        });
+      
+      if (!refreshToken) {
+        const authUrl = await createMicrosoftUrl(true);
+        return res.redirect(authUrl);
+      }
 
+      let userDb;
+      try {
+        userDb = await db
+          .insert(users)
+          .values({
+            name: userInfo.displayName,
+            email: userEmail,
+          })
+          .returning({
+            id: users.id,
+          });
+      } catch {
+        return res.status(409).send('User already exists. Try authenticating with Google');
+      }
+      const user = userDb[0];
+      
       await db.insert(oauthAccounts).values({
         userId: user.id,
         provider: 'microsoft',
         providerUserId,
-        refreshToken: refreshToken ?? null,
+        refreshToken: refreshToken,
       });
 
       userId = user.id;
@@ -168,14 +207,12 @@ microsoftAuthRouter.get('/auth', async (req, res) => {
 
     res.cookie('token', token, {
       httpOnly: true,
-      secure: false, // change to true in production with HTTPS
+      secure: false, // TODO: change to true in production with HTTPS
       sameSite: 'lax',
     });
 
-    return res.json({
-      message: 'User authenticated',
-      firstTime: userFirstTime,
-    });
+    return res.redirect(`/onboard?firstTime=${userFirstTime}`);
+
   } catch (err) {
     console.error('Microsoft OAuth callback error:', err);
     return res.status(500).json({
@@ -183,6 +220,8 @@ microsoftAuthRouter.get('/auth', async (req, res) => {
     });
   }
 });
+
+
 
 microsoftAuthRouter.get('/status', (req, res) => {
   const token = req.cookies.token;

@@ -1,8 +1,10 @@
+import 'dotenv/config';
+
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { eq } from 'drizzle-orm';
+import { eq, and } from 'drizzle-orm';
 import { db } from '../db/index.js'
-import { users, OAuth2Client } from '../db/index.js'
+import { users, oauthAccounts } from '../db/schema.js'
 
 import { OAuth2Client } from 'google-auth-library';
 
@@ -13,7 +15,7 @@ import {
 } from '../src/gmail.js';
 
 
-function getTestOauth()
+async function getTestOauth()
 {
   const userResult = await db
     .select()
@@ -47,7 +49,7 @@ function getTestOauth()
 |--------------------------------------------------------------------------
 */
 test('creates gmail auth client', async () => {
-  oauth = getTestOauth();
+  const oauth = await getTestOauth();
 
   const client = await createGmailAuthClient(oauth.refreshToken);
 
@@ -60,12 +62,14 @@ test('creates gmail auth client', async () => {
 |--------------------------------------------------------------------------
 */
 test('lists gmail messages', async () => {
-  oauth = getTestOauth();
+  const oauth = await getTestOauth();
 
   const client = await createGmailAuthClient(oauth.refreshToken);
 
   const messages = await listMessages(client, 5);
 
+  const message = await getMessage(client, messages[3].id)
+  
   assert.ok(Array.isArray(messages));
 });
 
@@ -75,7 +79,7 @@ test('lists gmail messages', async () => {
 |--------------------------------------------------------------------------
 */
 test('gets first gmail message', async () => {
-  oauth = getTestOauth();
+  const oauth = await getTestOauth();
 
   const client = await createGmailAuthClient(oauth.refreshToken);
 

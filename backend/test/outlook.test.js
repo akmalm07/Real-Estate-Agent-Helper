@@ -1,7 +1,8 @@
+import 'dotenv/config';
+
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { eq, and } from 'drizzle-orm';
-
 import { db } from '../db/index.js';
 import { users, oauthAccounts } from '../db/schema.js';
 
