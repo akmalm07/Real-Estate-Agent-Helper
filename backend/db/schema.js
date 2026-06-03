@@ -123,11 +123,12 @@ export const properties = pgTable('properties', {
 export const leads = pgTable('leads', {
   id: serial('id').primaryKey(),
 
+  // Nullable — a lead may come in without referencing a specific property.
+  // An agent can assign it manually later.
   propertyId: integer('property_id')
     .references(() => properties.id, {
       onDelete: 'cascade'
-    })
-    .notNull(),
+    }),
 
   name: text('name'),
 

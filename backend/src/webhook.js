@@ -217,6 +217,9 @@ function tokenize(str) {
   return str.toLowerCase().match(/\w+/g) ?? [];
 }
 
+// Tries to match a parsed lead's property string against one of the user's open properties.
+// Returns the matching property object, or null.
+//
 // Matching strategy (any one is sufficient):
 //   1. Full address string contains the needle, or vice versa.
 //   2. Every token in the needle appears somewhere in the full address tokens
@@ -233,7 +236,6 @@ export function matchProperty(parsedPropertyStr, openProperty) {
   }
 
   // Strategy 2: every token in the needle exists in the address tokens
-  // e.g. needle "Apt 2F" → tokens ["apt","2f"], addr tokens ["123","main","street","2f"]
   const addrTokens = new Set(tokenize(addr));
   const needleTokens = tokenize(needle);
 
@@ -246,6 +248,8 @@ export function matchProperty(parsedPropertyStr, openProperty) {
 
 // Returns only new, valid leads — filtering out duplicates.
 // Each returned item is { parsedLead, propertyId } ready to insert.
+// propertyId may be null if the lead didn't reference a specific property —
+// the agent can assign it manually later.
 export async function checkDuplicates(parsedLeads, user) {
   // Fetch all open properties for this user
   const openProperties = await db
@@ -256,7 +260,10 @@ export async function checkDuplicates(parsedLeads, user) {
       eq(properties.status, 'open')
     ));
 
-  const newLeads = [];
+  // Fetch ALL existing leads for this user (across all properties) for dedup.
+  // We query per property and merge into a single set.
+  const existingEmails = new Set();
+  const existingPhones = new Set();
 
   for (const property of openProperties) {
     const existingLeads = await db
@@ -264,40 +271,46 @@ export async function checkDuplicates(parsedLeads, user) {
       .from(leads)
       .where(eq(leads.propertyId, property.id));
 
-    const existingEmails = new Set(
-      existingLeads.map((l) => l.email?.toLowerCase()).filter(Boolean)
-    );
-
-    const existingPhoneNumbers = new Set(
-      existingLeads.map((l) => l.phone?.toLowerCase()).filter(Boolean)
-    );
-
-    for (const parsedLead of parsedLeads) {
-      const leadEmail = parsedLead.email?.toLowerCase() ?? null;
-      const leadPhone = parsedLead.phone?.toLowerCase() ?? null;
-
-      // Edge case: lead has no email or phone — cannot reliably dedup, warn and skip
-      if (!leadEmail && !leadPhone) {
-        console.warn('Lead has no email or phone, cannot dedup — skipping:', parsedLead);
-        continue;
-      }
-
-      // Skip duplicates
-      if ((leadEmail && existingEmails.has(leadEmail)) || (leadPhone && existingPhoneNumbers.has(leadPhone))) {
-        console.log(`Duplicate lead skipped: ${leadEmail ?? leadPhone}`);
-        continue;
-      }
-
-      // Try to match the lead to this property
-      const matched = matchProperty(parsedLead.property, property);
-
-      // propertyId is NOT NULL in schema, so always use the current property as fallback
-      newLeads.push({ parsedLead, propertyId: matched ? matched.id : property.id });
-
-      // Track within this batch to avoid double-inserting
-      if (leadEmail) existingEmails.add(leadEmail);
-      if (leadPhone) existingPhoneNumbers.add(leadPhone);
+    for (const l of existingLeads) {
+      if (l.email) existingEmails.add(l.email.toLowerCase());
+      if (l.phone) existingPhones.add(l.phone.toLowerCase());
     }
+  }
+
+  const newLeads = [];
+
+  for (const parsedLead of parsedLeads) {
+    const leadEmail = parsedLead.email?.toLowerCase() ?? null;
+    const leadPhone = parsedLead.phone?.toLowerCase() ?? null;
+
+    // Cannot reliably dedup without any contact info — skip
+    if (!leadEmail && !leadPhone) {
+      console.warn('Lead has no email or phone, cannot dedup — skipping:', parsedLead);
+      continue;
+    }
+
+    // Skip duplicates
+    if ((leadEmail && existingEmails.has(leadEmail)) || (leadPhone && existingPhones.has(leadPhone))) {
+      console.log(`Duplicate lead skipped: ${leadEmail ?? leadPhone}`);
+      continue;
+    }
+
+    // Try to match the lead to one of the user's open properties
+    let matchedPropertyId = null;
+    for (const property of openProperties) {
+      const matched = matchProperty(parsedLead.property, property);
+      if (matched) {
+        matchedPropertyId = matched.id;
+        break;
+      }
+    }
+
+    // Save with propertyId null if no property matched — agent assigns later
+    newLeads.push({ parsedLead, propertyId: matchedPropertyId });
+
+    // Track within this batch to avoid double-inserting
+    if (leadEmail) existingEmails.add(leadEmail);
+    if (leadPhone) existingPhones.add(leadPhone);
   }
 
   return newLeads;
@@ -359,7 +372,7 @@ webhookRouter.post('/gmail', async (req, res) => {
 
     await db.insert(leads).values(
       newLeads.map(({ parsedLead, propertyId }) => ({
-        propertyId,
+        propertyId: propertyId ?? null,
         name: parsedLead.name ?? null,
         email: parsedLead.email ?? null,
         phone: parsedLead.phone ?? null,
