@@ -75,6 +75,8 @@ export const oauthAccounts = pgTable('oauth_accounts', {
   
   gmailWatchExpiration: timestamp('gmail_watch_expiration'),
 
+  lastHistoryId: text('last_history_id'),
+
   createdAt: timestamp('created_at')
     .defaultNow()
     .notNull(),
@@ -86,12 +88,12 @@ export const oauthAccounts = pgTable('oauth_accounts', {
 |--------------------------------------------------------------------------
 */
 
-export const property = pgTable('properties', {
+export const properties = pgTable('properties', {
   id: serial('id').primaryKey(),
 
   user_id: integer('user_id')
     .references(() => users.id, {
-      onDelete: 'cascade'
+      onDelete: 'cascade',
     }),
 
   status: propertyStatusEnum('status')
@@ -121,7 +123,7 @@ export const property = pgTable('properties', {
 export const leads = pgTable('leads', {
   id: serial('id').primaryKey(),
 
-  userId: integer('user_id')
+  propertyId: integer('property_id')
     .references(() => property.id, {
       onDelete: 'cascade'
     })

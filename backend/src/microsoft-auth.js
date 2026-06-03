@@ -12,7 +12,6 @@ const microsoftAuthRouter = Router();
 
 const clientId = process.env.MICROSOFT_CLIENT_ID;
 const clientSecret = process.env.MICROSOFT_CLIENT_SECRET;
-const redirectUri = process.env.MICROSOFT_REDIRECT_URI;
 
 // Microsoft expects space‑separated scopes in the authorization URL.
 const SCOPES_LIST = process.env.MICROSOFT_SCOPES.split(',');
@@ -28,21 +27,11 @@ const SCOPES = SCOPES_LIST.join(' ');
 
 async function createMicrosoftUrl(promptConsent = false) {
   
-  let authUrl;
-
-  if (!promptConsent) {
-    authUrl = await msalClient.getAuthCodeUrl({
-      scopes: SCOPES_LIST,
-      redirectUri: process.env.MICROSOFT_REDIRECT_URI,
-    });    
-    
-  } else {
-    authUrl = await msalClient.getAuthCodeUrl({
-      scopes: SCOPES_LIST,
-      prompt: 'consent',
-      redirectUri: process.env.MICROSOFT_REDIRECT_URI,
-    });
-  }
+  const authUrl = await msalClient.getAuthCodeUrl({
+    scopes: SCOPES_LIST,
+    redirectUri: process.env.MICROSOFT_REDIRECT_URI,
+    ...(promptConsent && { prompt: 'consent' }),
+  });
   
   return authUrl;
 }

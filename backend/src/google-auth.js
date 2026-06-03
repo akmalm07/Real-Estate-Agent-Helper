@@ -28,20 +28,11 @@ function createGoogleUrl(promptConsent = false) {
     redirectUri
   );
 
-  let authUrl;
-
-  if (!promptConsent) {
-    authUrl = oauth2Client.generateAuthUrl({
+  const authUrl = oauth2Client.generateAuthUrl({
       access_type: 'offline',
       scope: SCOPES,
+      ...(promptConsent && { prompt: 'consent' }),
     });
-  } else {
-    authUrl = oauth2Client.generateAuthUrl({
-      access_type: 'offline',
-      scope: SCOPES,
-      prompt: 'consent',
-    });
-  }
   
   return authUrl;
 }
@@ -96,9 +87,9 @@ googleAuthRouter.get('/login', (req, res) => {
     } catch {}
   }
   
-  const authUrl = createGoogleUrl();
+   createGoogleUrl();
 
-  res.redirect(authUrl);
+  res.redirect
 });
 
 
@@ -192,8 +183,8 @@ googleAuthRouter.get('/auth', async (req, res) => {
 
       if (!refreshToken)
       {
-        const authUrl = createGoogleUrl(true);
-        return res.redirect(authUrl);
+         createGoogleUrl(true);
+        return res.redirect
       }
 
       let userDb;
