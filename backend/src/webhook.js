@@ -105,8 +105,9 @@ async function aiParseLead(body) {
   return JSON.parse(text);
 }
 
-async function checkEmails(emails) {
-  const leads = [];
+export async function checkEmails(emails) {
+  // Named 'results' to avoid shadowing the imported 'leads' table
+  const results = [];
 
   for (const email of emails) {
     const headers = email.payload?.headers ?? [];
@@ -129,7 +130,7 @@ async function checkEmails(emails) {
       }
     }
 
-    leads.push({
+    results.push({
       ...parsed,
       subject,
       from,
@@ -137,7 +138,7 @@ async function checkEmails(emails) {
     });
   }
 
-  return leads;
+  return results;
 }
 
 async function readNewEmails(oauth, newHistoryId) {
@@ -211,21 +212,42 @@ async function readNewEmails(oauth, newHistoryId) {
   return emails;
 }
 
-// Tries to match a parsed lead's property string against the user's open properties
-function matchProperty(parsedPropertyStr, openProperty) {
+// Splits a string into lowercase tokens (words/numbers).
+function tokenize(str) {
+  return str.toLowerCase().match(/\w+/g) ?? [];
+}
+
+// Matching strategy (any one is sufficient):
+//   1. Full address string contains the needle, or vice versa.
+//   2. Every token in the needle appears somewhere in the full address tokens
+//      (handles "Apt 2F" matching a DB addressLine2 of "2F").
+export function matchProperty(parsedPropertyStr, openProperty) {
   if (!parsedPropertyStr) return null;
 
   const needle = parsedPropertyStr.toLowerCase();
+  const addr = `${openProperty.addressLine1} ${openProperty.addressLine2 ?? ''}`.toLowerCase().trim();
 
-  const addr = `${openProperty.addressLine1} ${openProperty.addressLine2 ?? ''}`.toLowerCase();
-  return addr.includes(needle) || needle.includes(addr.trim());
+  // Strategy 1: substring match
+  if (addr.includes(needle) || needle.includes(addr)) {
+    return openProperty;
+  }
 
+  // Strategy 2: every token in the needle exists in the address tokens
+  // e.g. needle "Apt 2F" → tokens ["apt","2f"], addr tokens ["123","main","street","2f"]
+  const addrTokens = new Set(tokenize(addr));
+  const needleTokens = tokenize(needle);
+
+  if (needleTokens.length > 0 && needleTokens.every((t) => addrTokens.has(t))) {
+    return openProperty;
+  }
+
+  return null;
 }
 
-// Returns only new, valid leads — filtering out duplicates and leads for inactive properties.
+// Returns only new, valid leads — filtering out duplicates.
 // Each returned item is { parsedLead, propertyId } ready to insert.
-async function checkDuplicates(parsedLeads, user) {
-  // Fetch all properties for this user
+export async function checkDuplicates(parsedLeads, user) {
+  // Fetch all open properties for this user
   const openProperties = await db
     .select()
     .from(properties)
@@ -234,13 +256,13 @@ async function checkDuplicates(parsedLeads, user) {
       eq(properties.status, 'open')
     ));
 
-  // Fetch existing leads for this user to dedup by email
+  const newLeads = [];
+
   for (const property of openProperties) {
     const existingLeads = await db
       .select()
       .from(leads)
       .where(eq(leads.propertyId, property.id));
-
 
     const existingEmails = new Set(
       existingLeads.map((l) => l.email?.toLowerCase()).filter(Boolean)
@@ -249,44 +271,30 @@ async function checkDuplicates(parsedLeads, user) {
     const existingPhoneNumbers = new Set(
       existingLeads.map((l) => l.phone?.toLowerCase()).filter(Boolean)
     );
-    const newLeads = [];
 
     for (const parsedLead of parsedLeads) {
-      
-      // Edge case: lead has no email or phone — we can't reliably dedup, flag and include anyway
-      if (!parsedLead.email && !parsedLead.phone) {
-        console.warn('Lead has no email, cannot dedup:', parsedLead);
-        newLeads.push({ parsedLead, propertyId: null });
-        continue;
-      }
-      
-      let leadEmail
-      let leadPhone;
-      if (parsedLead.email) leadEmail = parsedLead.email.toLowerCase();
-      
-      if (parsedLead.phone) leadPhone = parsedLead.phone.toLowerCase();
-      
+      const leadEmail = parsedLead.email?.toLowerCase() ?? null;
+      const leadPhone = parsedLead.phone?.toLowerCase() ?? null;
 
-
-      // Edge case: duplicate lead email already in DB
-      if (leadEmail && existingEmails.has(leadEmail) || leadPhone && existingPhoneNumbers.has(leadPhone)) {
-        console.log(`Duplicate lead skipped: ${leadEmail}`);
+      // Edge case: lead has no email or phone — cannot reliably dedup, warn and skip
+      if (!leadEmail && !leadPhone) {
+        console.warn('Lead has no email or phone, cannot dedup — skipping:', parsedLead);
         continue;
       }
 
-      // Try to match the lead to one of the user's properties
+      // Skip duplicates
+      if ((leadEmail && existingEmails.has(leadEmail)) || (leadPhone && existingPhoneNumbers.has(leadPhone))) {
+        console.log(`Duplicate lead skipped: ${leadEmail ?? leadPhone}`);
+        continue;
+      }
+
+      // Try to match the lead to this property
       const matched = matchProperty(parsedLead.property, property);
 
-      if (matched) {
-        // Property is open — valid lead
-        newLeads.push({ parsedLead, propertyId: matched.id });
-      } else {
-        // No matching property found — lead emailed directly without referencing a property.
-        // Save the lead with no property linked.
-        newLeads.push({ parsedLead, propertyId: null });
-      }
+      // propertyId is NOT NULL in schema, so always use the current property as fallback
+      newLeads.push({ parsedLead, propertyId: matched ? matched.id : property.id });
 
-      // Track this email so we don't add it twice if it appears in the same batch
+      // Track within this batch to avoid double-inserting
       if (leadEmail) existingEmails.add(leadEmail);
       if (leadPhone) existingPhoneNumbers.add(leadPhone);
     }
@@ -339,12 +347,26 @@ webhookRouter.post('/gmail', async (req, res) => {
     }
 
     const emails = await readNewEmails(oauthAcc.oauth_accounts, pubSubMsgDecoded.historyId);
+    if (emails.length === 0) return res.sendStatus(200);
 
     const parsedLeads = await checkEmails(emails);
+    if (parsedLeads.length === 0) return res.sendStatus(200);
 
     const newLeads = await checkDuplicates(parsedLeads, oauthAcc.users);
+    if (newLeads.length === 0) return res.sendStatus(200);
 
     console.log('New leads to save:', newLeads);
+
+    await db.insert(leads).values(
+      newLeads.map(({ parsedLead, propertyId }) => ({
+        propertyId,
+        name: parsedLead.name ?? null,
+        email: parsedLead.email ?? null,
+        phone: parsedLead.phone ?? null,
+        source: parsedLead.from ?? null,
+        status: 'new',
+      }))
+    );
 
     res.sendStatus(200);
   } catch (err) {

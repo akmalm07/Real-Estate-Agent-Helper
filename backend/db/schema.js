@@ -124,7 +124,7 @@ export const leads = pgTable('leads', {
   id: serial('id').primaryKey(),
 
   propertyId: integer('property_id')
-    .references(() => property.id, {
+    .references(() => properties.id, {
       onDelete: 'cascade'
     })
     .notNull(),
