@@ -5,8 +5,6 @@ import OpenAI from 'openai';
 import { db } from '../db/index.js';
 import { users, oauthAccounts, properties, leads } from '../db/schema.js';
 
-import util from 'util'
-
 const googleOAuthClient = new OAuth2Client();
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
@@ -116,7 +114,11 @@ export async function checkEmails(emails) {
     const from = headers.find((h) => h.name.toLowerCase() === 'from')?.value ?? '';
     const subject = headers.find((h) => h.name.toLowerCase() === 'subject')?.value ?? '';
 
-    const source,
+    const source = /zillow\.com/i.test(from)
+      ? 'zillow'
+      : /realtor\.com/i.test(from)
+      ? 'realtor'
+      : 'other';
 
     const body = extractPlainText(email.payload);
 
