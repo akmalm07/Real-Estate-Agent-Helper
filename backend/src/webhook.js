@@ -5,6 +5,8 @@ import OpenAI from 'openai';
 import { db } from '../db/index.js';
 import { users, oauthAccounts, properties, leads } from '../db/schema.js';
 
+import util from 'util'
+
 const googleOAuthClient = new OAuth2Client();
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
@@ -114,6 +116,8 @@ export async function checkEmails(emails) {
     const from = headers.find((h) => h.name.toLowerCase() === 'from')?.value ?? '';
     const subject = headers.find((h) => h.name.toLowerCase() === 'subject')?.value ?? '';
 
+    const source,
+
     const body = extractPlainText(email.payload);
 
     if (!body) continue;
@@ -134,6 +138,7 @@ export async function checkEmails(emails) {
       ...parsed,
       subject,
       from,
+      source,
       gmailMessageId: email.id,
     });
   }
@@ -306,7 +311,7 @@ export async function checkDuplicates(parsedLeads, user) {
     }
 
     // Save with propertyId null if no property matched — agent assigns later
-    newLeads.push({ parsedLead, propertyId: matchedPropertyId });
+    newLeads.push({ parsedLead: parsedLead , propertyId: matchedPropertyId });
 
     // Track within this batch to avoid double-inserting
     if (leadEmail) existingEmails.add(leadEmail);
@@ -323,6 +328,8 @@ export async function checkDuplicates(parsedLeads, user) {
 */
 
 webhookRouter.post('/gmail', async (req, res) => {
+
+  // AUthentication Layer
   try {
     const auth = req.headers.authorization;
 
@@ -334,8 +341,6 @@ webhookRouter.post('/gmail', async (req, res) => {
 
     const payload = await verifyPubSubToken(token);
 
-    console.log(payload.email);
-
     if (payload.email !== pubSubServiceAcc) {
       return res.sendStatus(401);
     }
@@ -346,7 +351,7 @@ webhookRouter.post('/gmail', async (req, res) => {
       Buffer.from(pubSubMsgEncoded, 'base64').toString('utf8')
     );
 
-    console.log(pubSubMsgDecoded);
+    console.log('Point 1 reached')
 
     const [oauthAcc] = await db
       .select()
@@ -355,12 +360,18 @@ webhookRouter.post('/gmail', async (req, res) => {
       .where(eq(users.email, pubSubMsgDecoded.emailAddress))
       .limit(1);
 
+    console.log('Point 2 reached')
+
     if (!oauthAcc) {
+      console.log("we did not find the oauth Account!")
       return res.sendStatus(200); // Ignore unrecognized email
     }
+    console.log("Point 3 reached, we DID find the oauth Account!")
 
     const emails = await readNewEmails(oauthAcc.oauth_accounts, pubSubMsgDecoded.historyId);
     if (emails.length === 0) return res.sendStatus(200);
+
+    console.log(emails);
 
     const parsedLeads = await checkEmails(emails);
     if (parsedLeads.length === 0) return res.sendStatus(200);
@@ -373,10 +384,12 @@ webhookRouter.post('/gmail', async (req, res) => {
     await db.insert(leads).values(
       newLeads.map(({ parsedLead, propertyId }) => ({
         propertyId: propertyId ?? null,
+        userId: oauthAcc.userId,
         name: parsedLead.name ?? null,
         email: parsedLead.email ?? null,
         phone: parsedLead.phone ?? null,
-        source: parsedLead.from ?? null,
+        source: parsedLead.from,
+        sourceId: parsedLead.zillowId ?? parsedLead.realtorId ?? null,
         status: 'new',
       }))
     );
