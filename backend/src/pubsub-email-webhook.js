@@ -10,7 +10,6 @@ const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
 const pubsubEmailWebhook = Router();
 
-const pubSubServiceAcc = process.env.GOOGLE_PUB_SUB_AUTH_SERVICE_ACCOUNT;
 const pubSubAudience = process.env.PUB_SUB_AUDIENCE;
 
 /*
@@ -391,7 +390,7 @@ pubsubEmailWebhook.post('/gmail', async (req, res) => {
 
     const payload = await verifyPubSubToken(token);
 
-    if (payload.email !== pubSubServiceAcc) {
+    if (payload.email !== process.env.GOOGLE_PUB_SUB_AUTH_SERVICE_ACCOUNT) {
       return res.sendStatus(401);
     }
 

@@ -1,17 +1,25 @@
 import { Router } from 'express';
 import { OAuth2Client } from 'google-auth-library';
 import { eq, and, lt } from 'drizzle-orm';
-import { db } from '../db/index.js'
-import { oauthAccounts } from '../db/schema.js'
-import { OAuth2Client } from 'google-auth-library';
+import { db } from '../db/index.js';
+import { oauthAccounts } from '../db/schema.js';
 
 const client = new OAuth2Client();
 
-
-
 const schaduledGmailWatchRouter = Router();
 
-
+/* Verifies that the incoming request was made by the Google Cloud Scheduler
+ * service account by validating the OIDC token in the Authorization header.
+ *
+ * Parameters:
+ *   authHeader: string | undefined — the raw Authorization header value
+ *
+ * Returns:
+ *   The verified token payload
+ *
+ * Throws:
+ *   If the token is missing, invalid, or issued by the wrong service account
+ */
 async function verifySchedulerToken(authHeader) {
   const token = authHeader?.replace('Bearer ', '');
 
@@ -23,11 +31,9 @@ async function verifySchedulerToken(authHeader) {
   return ticket.getPayload();
 }
 
-
 async function refreshGmailWatch(req, res) {
 
   // Authorization layer
-
   const auth = req.headers.authorization;
 
   try {
@@ -41,7 +47,6 @@ async function refreshGmailWatch(req, res) {
   }
 
   // Logic layer
-
   const oneDayMS = 24 * 60 * 60 * 1000;
 
   const accounts = await db
@@ -98,12 +103,12 @@ async function refreshGmailWatch(req, res) {
           `Watch failed: ${await response.text()}`
         );
       }
-      
+
       const sixDaysMS = 6 * 24 * 60 * 60 * 1000;
 
       await db.update(oauthAccounts).set({
         gmailWatchExpiration: new Date(Date.now() + sixDaysMS),
-        }).where(eq(oauthAccounts.id, account.id));
+      }).where(eq(oauthAccounts.id, account.id));
 
       success++;
     } catch (err) {
@@ -122,12 +127,8 @@ async function refreshGmailWatch(req, res) {
   });
 }
 
-
 schaduledGmailWatchRouter.get('/daily', async (req, res) => {
-  
   return refreshGmailWatch(req, res);
-  
 });
-
 
 export default schaduledGmailWatchRouter;
