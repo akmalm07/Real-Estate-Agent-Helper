@@ -3,14 +3,44 @@ import { OAuth2Client } from 'google-auth-library';
 import { eq, and, lt } from 'drizzle-orm';
 import { db } from '../db/index.js'
 import { oauthAccounts } from '../db/schema.js'
+import { OAuth2Client } from 'google-auth-library';
 
-const internalMaintinenceRouter = Router();
+const client = new OAuth2Client();
 
-internalMaintinenceRouter.get('/daily', async (req, res) => {
-  
-});
 
-internalMaintinenceRouter.get('/gmail-watch-refresh', async (req, res) => {
+
+const schaduledGmailWatchRouter = Router();
+
+
+async function verifySchedulerToken(authHeader) {
+  const token = authHeader?.replace('Bearer ', '');
+
+  const ticket = await client.verifyIdToken({
+    idToken: token,
+    audience: process.env.SCHEDULER_URL,
+  });
+
+  return ticket.getPayload();
+}
+
+
+async function refreshGmailWatch(req, res) {
+
+  // Authorization layer
+
+  const auth = req.headers.authorization;
+
+  try {
+    const payload = await verifySchedulerToken(auth);
+
+    if (payload.email !== process.env.SCHEDULER_AUTH_SERVICE_ACCOUNT) {
+      return res.status(401).send('Unauthorized');
+    }
+  } catch {
+    return res.status(401).send('Unauthorized');
+  }
+
+  // Logic layer
 
   const oneDayMS = 24 * 60 * 60 * 1000;
 
@@ -53,7 +83,7 @@ internalMaintinenceRouter.get('/gmail-watch-refresh', async (req, res) => {
         {
           method: 'POST',
           headers: {
-            Authorization: `Bearer ${accessToken}`,
+            Authorization: `Bearer ${accessToken.token}`,
             'Content-Type': 'application/json',
           },
           body: JSON.stringify({
@@ -62,6 +92,12 @@ internalMaintinenceRouter.get('/gmail-watch-refresh', async (req, res) => {
           }),
         }
       );
+
+      if (!response.ok) {
+        throw new Error(
+          `Watch failed: ${await response.text()}`
+        );
+      }
       
       const sixDaysMS = 6 * 24 * 60 * 60 * 1000;
 
@@ -84,7 +120,14 @@ internalMaintinenceRouter.get('/gmail-watch-refresh', async (req, res) => {
     success,
     failed,
   });
+}
+
+
+schaduledGmailWatchRouter.get('/daily', async (req, res) => {
+  
+  return refreshGmailWatch(req, res);
+  
 });
 
 
-export default internalMaintinenceRouter;
+export default schaduledGmailWatchRouter;

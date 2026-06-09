@@ -7,10 +7,10 @@ import {
   boolean,
   timestamp,
   jsonb,
-  check
+  check,
 } from 'drizzle-orm/pg-core';
 
-import { sql } from 'drizzle-orm'
+import { sql } from 'drizzle-orm';
 
 /*
 |--------------------------------------------------------------------------
@@ -18,15 +18,19 @@ import { sql } from 'drizzle-orm'
 |--------------------------------------------------------------------------
 */
 
-export const providerEnum = pgEnum('provider', ['google', 'microsoft'])
+export const providerEnum = pgEnum('provider', ['google', 'microsoft']);
 
-export const convoTypeEnum = pgEnum('conversation_type', ['sms', 'email'])
+export const convoTypeEnum = pgEnum('conversation_type', ['sms', 'email']);
 
 export const messageDirection = pgEnum('message_direction', ['inbound', 'outbound']);
 
-export const propertyStatusEnum = pgEnum('property_status', ['draft', 'open', 'pending_deletion', 'archived'])
+export const propertyStatusEnum = pgEnum('property_status', ['draft', 'open', 'pending_deletion', 'archived']);
 
-export const entityTypeEnum = pgEnum('entity_type', [ 'lead', 'conversation', 'email', 'sms', 'task', 'property', 'custom']);
+export const entityTypeEnum = pgEnum('entity_type', ['lead', 'conversation', 'email', 'sms', 'task', 'property', 'custom']);
+
+export const leadSourceEnum = pgEnum('source_type', ['zillow', 'realtor', 'unknown']);
+
+export const conversationStatus = pgEnum('conversation_status', ['active', 'cold', 'converted', 'not_interested', 'opted_out']);
 
 /*
 |--------------------------------------------------------------------------
@@ -44,7 +48,9 @@ export const users = pgTable('users', {
   name: text('name')
     .notNull(),
 
-  createdAt: timestamp('created_at')
+  createdAt: timestamp('created_at', {
+    withTimezone: true,
+  })
     .defaultNow()
     .notNull(),
 });
@@ -60,7 +66,7 @@ export const oauthAccounts = pgTable('oauth_accounts', {
 
   userId: integer('user_id')
     .references(() => users.id, {
-      onDelete: 'cascade'
+      onDelete: 'cascade',
     })
     .notNull(),
 
@@ -72,12 +78,16 @@ export const oauthAccounts = pgTable('oauth_accounts', {
 
   refreshToken: text('refresh_token')
     .notNull(),
-  
-  gmailWatchExpiration: timestamp('gmail_watch_expiration'),
+
+  gmailWatchExpiration: timestamp('gmail_watch_expiration', {
+    withTimezone: true,
+  }),
 
   lastHistoryId: text('last_history_id'),
 
-  createdAt: timestamp('created_at')
+  createdAt: timestamp('created_at', {
+    withTimezone: true,
+  })
     .defaultNow()
     .notNull(),
 });
@@ -91,28 +101,32 @@ export const oauthAccounts = pgTable('oauth_accounts', {
 export const properties = pgTable('properties', {
   id: serial('id').primaryKey(),
 
-  user_id: integer('user_id')
+  userId: integer('user_id')
     .references(() => users.id, {
       onDelete: 'cascade',
     }),
 
   status: propertyStatusEnum('status')
     .notNull(),
-  
+
   addressLine1: text('address_line_1')
-    .notNull(), 
-    
+    .notNull(),
+
   addressLine2: text('address_line_2'),
-  
+
   description: text('description')
     .notNull(),
-  
-  deletionDate: timestamp('deletion_date'),
 
-  createdAt: timestamp('created_at')
+  deletionDate: timestamp('deletion_date', {
+    withTimezone: true,
+  }),
+
+  createdAt: timestamp('created_at', {
+    withTimezone: true,
+  })
     .defaultNow()
-    .notNull(),  
-})
+    .notNull(),
+});
 
 /*
 |--------------------------------------------------------------------------
@@ -127,23 +141,29 @@ export const leads = pgTable('leads', {
   // An agent can assign it manually later.
   propertyId: integer('property_id')
     .references(() => properties.id, {
-      onDelete: 'cascade'
+      onDelete: 'cascade',
     }),
+
+  userId: integer('user_id')
+    .references(() => users.id, {
+      onDelete: 'cascade',
+    })
+    .notNull(),
 
   name: text('name'),
 
   email: text('email'),
 
-//Add rank later ...
-
   phone: text('phone'),
 
-  source: text('source'),
+  source: leadSourceEnum('source')
+    .notNull(),
 
-  status: text('status')
-    .default('new'),
+  sourceId: text('source_id'),
 
-  createdAt: timestamp('created_at')
+  createdAt: timestamp('created_at', {
+    withTimezone: true,
+  })
     .defaultNow()
     .notNull(),
 });
@@ -159,7 +179,7 @@ export const conversations = pgTable('conversations', {
 
   leadId: integer('lead_id')
     .references(() => leads.id, {
-      onDelete: 'cascade'
+      onDelete: 'cascade',
     })
     .notNull(),
 
@@ -174,12 +194,38 @@ export const conversations = pgTable('conversations', {
 
   externalThreadId: text('external_thread_id'),
 
-  createdAt: timestamp('created_at')
-    .defaultNow()
+  status: conversationStatus('status')
+    .default('active')
     .notNull(),
+
+  followupTime: timestamp('followup_time', {
+    withTimezone: true,
+  }),
+
+  doNotContactUntil: timestamp('do_not_contact_until', {
+    withTimezone: true,
+  }),
+
+  lastLeadMessageAt: timestamp('last_lead_message_at', {
+    withTimezone: true,
+  }),
+
+  lastAgentMessageAt: timestamp('last_agent_message_at', {
+    withTimezone: true,
+  }),
+
+  unansweredFollowups: integer('unanswered_followups')
+    .default(0)
+    .notNull(),
+
+  optedOut: boolean('opted_out')
+    .default(false)
+    .notNull(),
+
+  conversationState: jsonb('conversation_state'),
 },
   (table) => [
-    //  recipient must be a non-empty array
+    // recipient must be a non-empty array
     check(
       'initial_recipient_is_non_empty_array',
       sql`
@@ -209,7 +255,7 @@ export const email = pgTable('email', {
 
   conversationId: integer('conversation_id')
     .references(() => conversations.id, {
-      onDelete: 'cascade'
+      onDelete: 'cascade',
     })
     .notNull(),
 
@@ -231,13 +277,16 @@ export const email = pgTable('email', {
 
   body: text('body'),
 
-  sentAt: timestamp('sent_at'),
+  sentAt: timestamp('sent_at', {
+    withTimezone: true,
+  }),
 
-  createdAt: timestamp('created_at')
+  createdAt: timestamp('created_at', {
+    withTimezone: true,
+  })
     .defaultNow()
     .notNull(),
 },
-
   (table) => [
     // recipient must be a non-empty array
     check(
@@ -277,7 +326,7 @@ export const sms = pgTable('sms', {
 
   conversationId: integer('conversation_id')
     .references(() => conversations.id, {
-      onDelete: 'cascade'
+      onDelete: 'cascade',
     })
     .notNull(),
 
@@ -286,11 +335,16 @@ export const sms = pgTable('sms', {
   direction: messageDirection('direction')
     .notNull(),
 
-  body: text('body'),
+  body: text('body')
+    .notNull(),
 
-  sentAt: timestamp('sent_at'),
+  sentAt: timestamp('sent_at', {
+    withTimezone: true,
+  }),
 
-  createdAt: timestamp('created_at')
+  createdAt: timestamp('created_at', {
+    withTimezone: true,
+  })
     .defaultNow()
     .notNull(),
 });
@@ -306,14 +360,16 @@ export const leadNotes = pgTable('lead_notes', {
 
   leadId: integer('lead_id')
     .references(() => leads.id, {
-      onDelete: 'cascade'
+      onDelete: 'cascade',
     })
     .notNull(),
-  
+
   note: text('note')
     .notNull(),
 
-  createdAt: timestamp('created_at')
+  createdAt: timestamp('created_at', {
+    withTimezone: true,
+  })
     .defaultNow()
     .notNull(),
 });
@@ -329,7 +385,7 @@ export const leadTasks = pgTable('lead_tasks', {
 
   leadId: integer('lead_id')
     .references(() => leads.id, {
-      onDelete: 'cascade'
+      onDelete: 'cascade',
     })
     .notNull(),
 
@@ -340,9 +396,13 @@ export const leadTasks = pgTable('lead_tasks', {
     .default(false)
     .notNull(),
 
-  dueDate: timestamp('due_date'),
+  dueDate: timestamp('due_date', {
+    withTimezone: true,
+  }),
 
-  createdAt: timestamp('created_at')
+  createdAt: timestamp('created_at', {
+    withTimezone: true,
+  })
     .defaultNow()
     .notNull(),
 });
@@ -358,7 +418,7 @@ export const activityLogs = pgTable('activity_logs', {
 
   leadId: integer('lead_id')
     .references(() => leads.id, {
-      onDelete: 'cascade'
+      onDelete: 'cascade',
     })
     .notNull(),
 
@@ -367,13 +427,15 @@ export const activityLogs = pgTable('activity_logs', {
 
   entityId: integer('entity_id')
     .notNull(),
-  
+
   metadata: jsonb('metadata')
     .notNull(),
 
   description: text('description'),
 
-  createdAt: timestamp('created_at')
+  createdAt: timestamp('created_at', {
+    withTimezone: true,
+  })
     .defaultNow()
     .notNull(),
 });

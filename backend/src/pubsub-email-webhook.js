@@ -8,7 +8,7 @@ import { users, oauthAccounts, properties, leads } from '../db/schema.js';
 const googleOAuthClient = new OAuth2Client();
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
-const webhookRouter = Router();
+const pubsubEmailWebhook = Router();
 
 const pubSubServiceAcc = process.env.GOOGLE_PUB_SUB_AUTH_SERVICE_ACCOUNT;
 const pubSubAudience = process.env.PUB_SUB_AUDIENCE;
@@ -73,8 +73,9 @@ function regexParseLead(body) {
   const property = body.match(/(?:property|home|listing|address)[:\s]+([^\n]+)/i)?.[1]?.trim() ?? null;
   const zillowId = body.match(/zillow\.com\/homedetails\/[^/]+\/(\d+)_zpid/i)?.[1] ?? null;
   const realtorId = body.match(/realtor\.com\/realestateandhomes-detail\/[^/]+-(\d+)/i)?.[1] ?? null;
+  const name = body.match(/(?:name|contact|buyer|seller|from)[:\s]+([A-Z][a-z]+(?:\s[A-Z][a-z]+)+)/i)?.[1]?.trim() ?? null;
 
-  return { email, phone, property, zillowId, realtorId };
+  return { email, phone, property, zillowId, realtorId, name };
 }
 
 function isParseComplete(parsed) {
@@ -105,7 +106,7 @@ async function aiParseLead(body) {
   return JSON.parse(text);
 }
 
-export async function checkEmails(emails) {
+export async function checkEmails(emails) { // TODO
   // Named 'results' to avoid shadowing the imported 'leads' table
   const results = [];
 
@@ -118,7 +119,7 @@ export async function checkEmails(emails) {
       ? 'zillow'
       : /realtor\.com/i.test(from)
       ? 'realtor'
-      : 'other';
+      : 'unknown';
 
     const body = extractPlainText(email.payload);
 
@@ -257,31 +258,42 @@ export function matchProperty(parsedPropertyStr, openProperty) {
 // Each returned item is { parsedLead, propertyId } ready to insert.
 // propertyId may be null if the lead didn't reference a specific property —
 // the agent can assign it manually later.
+//
+// Duplicate logic is scoped per property:
+//   - If a lead matched a property, it's only a duplicate if the same email/phone
+//     already exists for THAT property.
+//   - If a lead has no matched property (propertyId null), it's deduped globally
+//     across all null-property leads for this user.
 export async function checkDuplicates(parsedLeads, user) {
   // Fetch all open properties for this user
   const openProperties = await db
     .select()
     .from(properties)
     .where(and(
-      eq(properties.user_id, user.id),
+      eq(properties.userId, user.id),
       eq(properties.status, 'open')
     ));
 
-  // Fetch ALL existing leads for this user (across all properties) for dedup.
-  // We query per property and merge into a single set.
-  const existingEmails = new Set();
-  const existingPhones = new Set();
+  // Fetch ALL existing leads for this user.
+  const existingLeads = await db
+    .select()
+    .from(leads)
+    .where(eq(leads.userId, user.id));
 
-  for (const property of openProperties) {
-    const existingLeads = await db
-      .select()
-      .from(leads)
-      .where(eq(leads.propertyId, property.id));
+  // Build a Map: propertyId (or null for unmatched) -> { emails: Set, phones: Set }
+  // This lets us check duplicates scoped to a specific property.
+  const existingByProperty = new Map();
 
-    for (const l of existingLeads) {
-      if (l.email) existingEmails.add(l.email.toLowerCase());
-      if (l.phone) existingPhones.add(l.phone.toLowerCase());
+  for (const l of existingLeads) {
+    const key = l.propertyId; // Could be null
+
+    if (!existingByProperty.has(key)) {
+      existingByProperty.set(key, { emails: new Set(), phones: new Set() });
     }
+
+    const bucket = existingByProperty.get(key);
+    if (l.email) bucket.emails.add(l.email.toLowerCase());
+    if (l.phone) bucket.phones.add(l.phone.toLowerCase());
   }
 
   const newLeads = [];
@@ -296,12 +308,6 @@ export async function checkDuplicates(parsedLeads, user) {
       continue;
     }
 
-    // Skip duplicates
-    if ((leadEmail && existingEmails.has(leadEmail)) || (leadPhone && existingPhones.has(leadPhone))) {
-      console.log(`Duplicate lead skipped: ${leadEmail ?? leadPhone}`);
-      continue;
-    }
-
     // Try to match the lead to one of the user's open properties
     let matchedPropertyId = null;
     for (const property of openProperties) {
@@ -312,16 +318,58 @@ export async function checkDuplicates(parsedLeads, user) {
       }
     }
 
-    // Save with propertyId null if no property matched — agent assigns later
-    newLeads.push({ parsedLead: parsedLead , propertyId: matchedPropertyId });
+    const key = matchedPropertyId ?? null;
 
-    // Track within this batch to avoid double-inserting
-    if (leadEmail) existingEmails.add(leadEmail);
-    if (leadPhone) existingPhones.add(leadPhone);
+    if (!existingByProperty.has(key)) {
+      existingByProperty.set(key, { emails: new Set(), phones: new Set() });
+    }
+
+    const bucket = existingByProperty.get(key);
+
+    // Check for duplicate within the same property scope
+    if ((leadEmail && bucket.emails.has(leadEmail)) || (leadPhone && bucket.phones.has(leadPhone))) {
+      console.log(`Duplicate lead skipped for property ${key}: ${leadEmail ?? leadPhone}`);
+      continue;
+    }
+
+    newLeads.push({ parsedLead, propertyId: matchedPropertyId });
+
+    // Track within this batch to avoid double-inserting within the same property
+    if (leadEmail) bucket.emails.add(leadEmail);
+    if (leadPhone) bucket.phones.add(leadPhone);
   }
 
   return newLeads;
 }
+
+
+function sendSMS(phoneNumber) {
+
+}
+
+
+function sendEmail(email) {
+  
+}
+
+
+
+function sendInitalMessage(newLeads) {
+  
+  for (const lead of newLeads) {
+    
+    if (lead.phone) {
+      sendSMS(lead.phone);
+    } else if (lead.email) {
+      sendEmail(lead.email);
+    } else {
+      throw Error("Nither phone nor email was provided");
+    }
+
+    //await db;
+  }
+}
+
 
 /*
 |--------------------------------------------------------------------------
@@ -329,7 +377,7 @@ export async function checkDuplicates(parsedLeads, user) {
 |--------------------------------------------------------------------------
 */
 
-webhookRouter.post('/gmail', async (req, res) => {
+pubsubEmailWebhook.post('/gmail', async (req, res) => {
 
   // AUthentication Layer
   try {
@@ -353,8 +401,6 @@ webhookRouter.post('/gmail', async (req, res) => {
       Buffer.from(pubSubMsgEncoded, 'base64').toString('utf8')
     );
 
-    console.log('Point 1 reached')
-
     const [oauthAcc] = await db
       .select()
       .from(oauthAccounts)
@@ -362,18 +408,13 @@ webhookRouter.post('/gmail', async (req, res) => {
       .where(eq(users.email, pubSubMsgDecoded.emailAddress))
       .limit(1);
 
-    console.log('Point 2 reached')
-
     if (!oauthAcc) {
       console.log("we did not find the oauth Account!")
       return res.sendStatus(200); // Ignore unrecognized email
     }
-    console.log("Point 3 reached, we DID find the oauth Account!")
 
     const emails = await readNewEmails(oauthAcc.oauth_accounts, pubSubMsgDecoded.historyId);
     if (emails.length === 0) return res.sendStatus(200);
-
-    console.log(emails);
 
     const parsedLeads = await checkEmails(emails);
     if (parsedLeads.length === 0) return res.sendStatus(200);
@@ -381,20 +422,25 @@ webhookRouter.post('/gmail', async (req, res) => {
     const newLeads = await checkDuplicates(parsedLeads, oauthAcc.users);
     if (newLeads.length === 0) return res.sendStatus(200);
 
-    console.log('New leads to save:', newLeads);
-
     await db.insert(leads).values(
       newLeads.map(({ parsedLead, propertyId }) => ({
         propertyId: propertyId ?? null,
-        userId: oauthAcc.userId,
+        userId: oauthAcc.users.id,
         name: parsedLead.name ?? null,
         email: parsedLead.email ?? null,
         phone: parsedLead.phone ?? null,
-        source: parsedLead.from,
-        sourceId: parsedLead.zillowId ?? parsedLead.realtorId ?? null,
+        source: parsedLead.source,
+        sourceId: parsedLead.zillowId ?? parsedLead.realtorId ?? 'unknown',
         status: 'new',
       }))
     );
+
+  sendInitalMessage(newLeads);
+
+  console.log(
+    'Leads accepted:',
+    newLeads.map(({ parsedLead }) => parsedLead.email ?? '(no email)')
+  );
 
     res.sendStatus(200);
   } catch (err) {
@@ -403,4 +449,4 @@ webhookRouter.post('/gmail', async (req, res) => {
   }
 });
 
-export default webhookRouter;
+export default pubsubEmailWebhook;

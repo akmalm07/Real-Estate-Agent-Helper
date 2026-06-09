@@ -20,7 +20,8 @@
     "express": "^5.2.1",
     "google-auth-library": "^10.6.2",
     "jsonwebtoken": "^9.0.3",
-    "openai": "^6.41.0"
+    "openai": "^6.41.0",
+    "twilio": "^6.0.2"
   },
   "devDependencies": {
     "drizzle-kit": "^0.31.10"

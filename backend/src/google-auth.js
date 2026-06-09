@@ -21,12 +21,17 @@ const SCOPES = process.env.GOOGLE_SCOPES.split(',');
 */
 
 
-function createGoogleUrl(promptConsent = false) {
-  const oauth2Client = new OAuth2Client(
-    clientId,
-    clientSecret,
-    redirectUri
-  );
+function createGoogleUrl(oauthClient, promptConsent = false) {
+  let oauth2Client;
+  if (oauthClient) {
+    oauth2Client = oauthClient;
+  } else {
+    oauth2Client = new OAuth2Client(
+      clientId,
+      clientSecret,
+      redirectUri
+    );
+  }
 
   const authUrl = oauth2Client.generateAuthUrl({
       access_type: 'offline',
@@ -62,12 +67,11 @@ async function setupGmailWatch({ oauth2Client, oauthDbId }) {
 
   const json = await response.json();
 
-  console.log(json.historyId);
-
   const sixDaysMS = 6 * 24 * 60 * 60 * 1000;
 
   await db.update(oauthAccounts).set({
     gmailWatchExpiration: new Date(Date.now() + sixDaysMS),
+    lastHistoryId: json.historyId,
     }).where(eq(oauthAccounts.id, oauthDbId));
 }
 
@@ -77,21 +81,30 @@ async function setupGmailWatch({ oauth2Client, oauthDbId }) {
 |--------------------------------------------------------------------------
 */
 
+
+
+googleAuthRouter.get('/signup', (req, res) => {
+
+  const authUrl = createGoogleUrl(null, true);
+  return res.redirect(authUrl);  
+
+});
+
+
+// Force promptConsent = true so that existing users who are missing the
+// gmail.send scope are prompted to re-authorize with the full scope list.
 googleAuthRouter.get('/login', (req, res) => {
   const token = req.cookies.token;
-
   if (token) {
-   try {
+    try {
       verifyToken(token);
       return res.redirect('/dashboard');
     } catch {}
   }
-  
-   createGoogleUrl();
 
-  res.redirect
+  const authUrl = createGoogleUrl(null, true);
+  return res.redirect(authUrl);
 });
-
 
 
 googleAuthRouter.get('/auth', async (req, res) => {
@@ -110,6 +123,7 @@ googleAuthRouter.get('/auth', async (req, res) => {
       clientSecret,
       redirectUri
     );
+
 
     const { tokens } = await oauth2Client.getToken(code);
     oauth2Client.setCredentials(tokens);
@@ -181,10 +195,9 @@ googleAuthRouter.get('/auth', async (req, res) => {
       }
     } else {
 
-      if (!refreshToken)
-      {
-         createGoogleUrl(true);
-        return res.redirect
+      if (!refreshToken) {
+        const authUrl = createGoogleUrl(oauth2Client, true);
+        return res.redirect(authUrl);
       }
 
       let userDb;
