@@ -32,6 +32,15 @@ export const leadSourceEnum = pgEnum('source_type', ['zillow', 'realtor', 'unkno
 
 export const conversationStatus = pgEnum('conversation_status', ['active', 'cold', 'converted', 'not_interested', 'opted_out']);
 
+export const propertySourceEnum = pgEnum('property_source', ['zillow', 'realtor', 'unknown']);
+
+// Status of a lead in the CRM lifecycle.
+//   active          — lead is being worked, normal outreach continues
+//   ready           — AI detected the lead is ready to book an appointment
+//   archived        — lead is no longer active but kept for records
+//   pending_deletion — lead is scheduled for deletion
+export const leadStatusEnum = pgEnum('lead_status', ['active', 'ready', 'archived', 'pending_deletion']);
+
 /*
 |--------------------------------------------------------------------------
 | Users
@@ -121,6 +130,11 @@ export const properties = pgTable('properties', {
     withTimezone: true,
   }),
 
+  source: propertySourceEnum('property_source')
+    .notNull(),
+
+  externalId: text('external_id'),
+
   createdAt: timestamp('created_at', {
     withTimezone: true,
   })
@@ -160,6 +174,20 @@ export const leads = pgTable('leads', {
     .notNull(),
 
   sourceId: text('source_id'),
+
+  // Current lifecycle status of the lead.
+  //   active          — normal outreach in progress
+  //   ready           — AI flagged the lead as ready to book an appointment
+  //   archived        — no longer active, kept for records
+  //   pending_deletion — scheduled for deletion
+  status: leadStatusEnum('status')
+    .default('active')
+    .notNull(),
+
+  // Set when status is 'pending_deletion'. The lead will be deleted on or after this date.
+  deletionDate: timestamp('deletion_date', {
+    withTimezone: true,
+  }),
 
   createdAt: timestamp('created_at', {
     withTimezone: true,

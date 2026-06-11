@@ -3,6 +3,7 @@ import {
   leads,
   conversations,
   email,
+  email as emailTable,
   leadNotes,
   leadTasks,
   properties,
@@ -10,6 +11,7 @@ import {
 import { eq, and } from 'drizzle-orm';
 import { createGmailAuthClient, sendEmail as gmailSend } from './gmail.js';
 import { generateAiReply } from './ai-helpers.js';
+import { loadLeadNotes, loadPropertyDescription } from './load-lead-helpers.js';
 
 /*
 |--------------------------------------------------------------------------
@@ -110,7 +112,7 @@ export async function findExistingEmailConversation(leadId, inReplyTo, threadId)
  *   subject:     string | null — email subject (used for new conversations)
  *
  * Returns:
- *   number — the conversation ID
+ *   conversation record — either the existing or newly created conversation
  */
 export async function findOrCreateEmailConversation(
   leadId,
@@ -121,7 +123,7 @@ export async function findOrCreateEmailConversation(
   subject,
 ) {
   const existing = await findExistingEmailConversation(leadId, inReplyTo, threadId);
-  if (existing) return existing.id;
+  if (existing) return existing;
 
   const inserted = await db
     .insert(conversations)
@@ -132,9 +134,9 @@ export async function findOrCreateEmailConversation(
       initialRecipient: toAddresses.map((addr) => ({ email: addr })),
       externalThreadId: threadId || null,
     })
-    .returning({ id: conversations.id });
+    .returning();
 
-  return inserted[0].id;
+  return inserted[0];
 }
 
 /* Saves an email message (inbound or outbound) to the email table.
@@ -185,6 +187,7 @@ export async function saveEmailMessage(
  *
  * Parameters:
  *   lead:                object | null — the lead record from the database
+ *   conversation:        object | null — the conversation record from the database
  *   inboundSubject:      string | null — subject of the inbound email
  *   inboundBody:         string        — the email body sent by the lead
  *   propertyDescription: string | null
@@ -192,10 +195,10 @@ export async function saveEmailMessage(
  *   notes:               Array         — lead note strings from loadLeadNotes()
  *
  * Returns:
- *   { subject: string, body: string, addNote: string | null, addTask: { title: string, dueDate: string | null } | null }
+ *   { subject: string, body: string, addNote: string | null, addTask: { title: string, dueDate: string | null } | null, updateConversationState: object | null, readyToBook: boolean }
  */
-export async function generateEmailReply(lead, inboundSubject, inboundBody, propertyDescription, history, notes) {
-  return generateAiReply('email', lead, inboundBody, inboundSubject, propertyDescription, history, notes);
+export async function generateEmailReply(lead, conversation, inboundSubject, inboundBody, propertyDescription, history, notes) {
+  return generateAiReply('email', lead, conversation, inboundBody, inboundSubject, propertyDescription, history, notes);
 }
 
 /*
@@ -205,7 +208,8 @@ export async function generateEmailReply(lead, inboundSubject, inboundBody, prop
 */
 
 /* Sends an outbound email reply on behalf of the agent using their stored
- * Gmail OAuth refresh token, then saves the sent message to the database.
+ * Gmail OAuth refresh token, then saves the sent message to the database
+ * and updates lastAgentMessageAt on the conversation.
  *
  * Parameters:
  *   oauthRefreshToken: string — the agent's Gmail refresh token from oauth_accounts
@@ -233,6 +237,8 @@ export async function sendAndSaveEmail(
   // We store this as externalMessageId so future In-Reply-To lookups can match it.
   const gmailMessageId = sentMessage?.id || null;
 
+  const now = new Date();
+
   await saveEmailMessage(
     conversationId,
     'outbound',
@@ -242,6 +248,197 @@ export async function sendAndSaveEmail(
     subject,
     body,
     gmailMessageId,
-    new Date(),
+    now,
   );
+
+  // Update lastAgentMessageAt so the scheduler knows when the last outbound message was sent.
+  await db
+    .update(conversations)
+    .set({ lastAgentMessageAt: now })
+    .where(eq(conversations.id, conversationId));
+}
+
+/* Checks a batch of raw Gmail message objects to see if any are replies
+ * from a known lead to one of our outbound emails.
+ *
+ * For each email in the batch:
+ *   1. Extracts the From address and In-Reply-To / References headers.
+ *   2. Looks up a lead in the database whose email matches the From address
+ *      and belongs to this agent (userId).
+ *   3. Tries to find an existing email conversation via In-Reply-To or the
+ *      Gmail thread ID (externalThreadId).
+ *   4. If a matching conversation is found and is active, saves the inbound
+ *      message, generates an AI reply, and sends it back to the lead.
+ *   5. Skips the email silently if no matching lead or conversation is found,
+ *      or if the conversation is not active.
+ *
+ * Parameters:
+ *   rawEmails:         object[] — raw Gmail message objects (format=full)
+ *   agentUserId:       number   — the agent's user ID (used to scope lead lookup)
+ *   agentEmail:        string   — the agent's email address (used as sender)
+ *   oauthRefreshToken: string   — the agent's Gmail OAuth refresh token
+ */
+export async function checkForLeadAndReply(rawEmails, agentUserId, agentEmail, oauthRefreshToken) {
+  for (const rawEmail of rawEmails) {
+    try {
+      const headers = rawEmail.payload?.headers ?? [];
+
+      const getHeader = (name) =>
+        headers.find((h) => h.name.toLowerCase() === name.toLowerCase())?.value ?? null;
+
+      const fromHeader = getHeader('From');
+      const inReplyTo = getHeader('In-Reply-To');
+      const subject = getHeader('Subject');
+      const gmailThreadId = rawEmail.threadId ?? null;
+      const gmailMessageId = rawEmail.id ?? null;
+
+      if (!fromHeader) continue;
+
+      // Extract the bare email address from the From header (e.g. "John Doe <john@example.com>")
+      const fromAddressMatch = fromHeader.match(/<([^>]+)>/) ?? fromHeader.match(/([^\s]+@[^\s]+)/);
+      const fromAddress = fromAddressMatch?.[1]?.toLowerCase() ?? null;
+
+      if (!fromAddress) continue;
+
+      // Skip emails that came from the agent themselves (e.g. sent-mail notifications)
+      if (fromAddress === agentEmail.toLowerCase()) continue;
+
+      // Look up a lead for this agent whose email matches the sender
+      const leadResults = await db
+        .select()
+        .from(leads)
+        .where(
+          and(
+            eq(leads.userId, agentUserId),
+            eq(leads.email, fromAddress),
+          )
+        )
+        .limit(1);
+
+      const lead = leadResults[0] ?? null;
+
+      if (!lead) {
+        // Not a known lead — skip (will be handled as a new lead or ignored)
+        continue;
+      }
+
+      // Try to find the conversation this email is replying to.
+      // Use In-Reply-To first, then fall back to the Gmail thread ID.
+      const conversation = await findExistingEmailConversation(
+        lead.id,
+        inReplyTo,
+        gmailThreadId,
+      );
+
+      // Skip if no matching conversation found, or if it is not active.
+      if (!conversation || conversation.status !== 'active') {
+        continue;
+      }
+
+      // Check if we've already saved this Gmail message (idempotency guard)
+      const alreadySaved = await db
+        .select({ id: emailTable.id })
+        .from(emailTable)
+        .where(eq(emailTable.externalMessageId, gmailMessageId))
+        .limit(1);
+
+      if (alreadySaved.length > 0) {
+        console.log(`Gmail message ${gmailMessageId} already saved, skipping.`);
+        continue;
+      }
+
+      const body = extractPlainText(rawEmail.payload) ?? '';
+
+      // Save the inbound reply from the lead
+      await saveEmailMessage(
+        conversation.id,
+        'inbound',
+        fromAddress,
+        [agentEmail],
+        [],
+        subject,
+        body,
+        gmailMessageId,
+        new Date(),
+      );
+
+      // Load context needed for AI reply generation
+      const [history, notes, propertyDescription] = await Promise.all([
+        loadEmailHistory(conversation.id),
+        loadLeadNotes(lead.id),
+        loadPropertyDescription(lead.id),
+      ]);
+
+      // Generate and send the AI reply
+      const { subject: replySubject, body: replyBody, readyToBook } = await generateEmailReply(
+        lead,
+        conversation,
+        subject,
+        body,
+        propertyDescription,
+        history,
+        notes,
+      );
+
+      await sendAndSaveEmail(
+        oauthRefreshToken,
+        agentEmail,
+        fromAddress,
+        replySubject,
+        replyBody,
+        conversation.id,
+      );
+
+      // If the lead is ready to book, update their status and create an agent task.
+      if (readyToBook && lead.status !== 'ready') {
+        await db
+          .update(leads)
+          .set({ status: 'ready' })
+          .where(eq(leads.id, lead.id));
+
+        await db.insert(leadTasks).values({
+          leadId: lead.id,
+          title: `📅 ${lead.name || 'Lead'} is ready to book an appointment — follow up now!`,
+          dueDate: null,
+        });
+
+        console.log(`Lead ${lead.id} marked as ready to book.`);
+      }
+
+      console.log(`Replied to lead ${lead.id} (${fromAddress}) on conversation ${conversation.id}.`);
+    } catch (err) {
+      console.error('Error handling potential lead reply:', err);
+    }
+  }
+}
+
+function extractPlainText(payload) {
+  // Direct body
+  if (payload.body?.data) {
+    return Buffer.from(payload.body.data, 'base64').toString('utf8');
+  }
+
+  // Search parts for text/plain
+  if (payload.parts) {
+    for (const part of payload.parts) {
+      if (part.mimeType === 'text/plain' && part.body?.data) {
+        return Buffer.from(part.body.data, 'base64').toString('utf8');
+      }
+      // Recurse into nested parts
+      if (part.parts) {
+        const nested = extractPlainText(part);
+        if (nested) return nested;
+      }
+    }
+
+    // Fallback: strip HTML if no plain text found
+    for (const part of payload.parts) {
+      if (part.mimeType === 'text/html' && part.body?.data) {
+        const html = Buffer.from(part.body.data, 'base64').toString('utf8');
+        return html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+      }
+    }
+  }
+
+  return null;
 }

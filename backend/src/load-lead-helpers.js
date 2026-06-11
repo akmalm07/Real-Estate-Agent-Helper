@@ -1,3 +1,11 @@
+import { db } from '../db/index.js';
+import {
+  leads,
+  properties,
+  leadNotes,
+  leadTasks,
+} from '../db/schema.js';
+import { eq } from 'drizzle-orm';
 
 /* Loads the property description and address for a given lead.
  *

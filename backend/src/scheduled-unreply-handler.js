@@ -112,6 +112,7 @@ async function processConversation(conversation) {
   // a natural follow-up that continues the thread.
   const { subject, body, addNote, addTask } = await generateEmailReply(
     lead,
+    conversation,
     null,
     '',
     propertyDescription,
@@ -204,7 +205,7 @@ async function processConversation(conversation) {
  *   - Marks conversations as 'cold' when unansweredFollowups reaches 4
  *   - Optionally inserts lead notes and tasks based on AI recommendations
  */
-scheduledUnreplyRouter.get('/daily', async (req, res) => {
+scheduledUnreplyRouter.get('/unreply/daily', async (req, res) => {
   // Authorization layer — same pattern as shaduled-gmail-watch.js
   const auth = req.headers.authorization;
 

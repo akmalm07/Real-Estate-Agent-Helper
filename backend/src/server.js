@@ -3,12 +3,19 @@ import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
 import path from 'path'
+import cookieParser from 'cookie-parser';
+
 import googleAuthRouter from './google-auth.js';
 import microsoftAuthRouter from './microsoft-auth.js';
-import cookieParser from 'cookie-parser';
-import pubsubEmailWebhook from './pubsub-email-webhook.js'
+
+import pubsubEmailWebhook from './gmail-email-webhook.js'
+import outlookEmailWebhook from './outlook-email-webhook.js'
+
 import schaduledGmailWatchRouter from './shaduled-gmail-watch.js'
+import scheduledUnreplyRouter from './scheduled-unreply-handler.js'
+
 import smsWebhookRouter from './sms-webhook.js';
+import emailDraftWebhookRouter from './email-webhook.js';
 
 
 const app = express();
@@ -31,9 +38,12 @@ app.get('*', (req, res) => {
 
 app.use('/google', googleAuthRouter);
 // app.use('/microsoft', microsoftAuthRouter);
-app.use('/webhook', readEmailWebhookRouter);
+app.use('/webhook', pubsubEmailWebhook);
 app.use('/webhook', smsWebhookRouter);
-app.use('internal/maintinence', internalMaintinenceRouter);
+app.use('/webhook', emailDraftWebhookRouter);
+app.use('/webhook', outlookEmailWebhook);
+app.use('/schaduler', schaduledGmailWatchRouter);
+app.use('/schaduler', scheduledUnreplyRouter);
 
 const PORT = process.env.PORT || 3000;
 

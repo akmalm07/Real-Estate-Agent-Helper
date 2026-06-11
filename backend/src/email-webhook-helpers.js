@@ -1,33 +1,29 @@
-import { Router } from 'express';
-import { OAuth2Client } from 'google-auth-library';
-import { eq, and } from 'drizzle-orm';
 import OpenAI from 'openai';
+import { eq, and } from 'drizzle-orm';
 import { db } from '../db/index.js';
-import { users, oauthAccounts, properties, leads } from '../db/schema.js';
+import { properties, leads, conversations } from '../db/schema.js';
+import { sendSMS as twilioSendSMS } from './phone.js';
+import {
+  findOrCreateSmsConversation,
+  saveSmsMessage,
+  generateSmsReply,
+} from './sms-helpers.js';
+import {
+  findOrCreateEmailConversation,
+  saveEmailMessage,
+  sendAndSaveEmail,
+  generateEmailReply,
+} from './email-helpers.js';
 
-const googleOAuthClient = new OAuth2Client();
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
-
-const pubsubEmailWebhook = Router();
-
-const pubSubAudience = process.env.PUB_SUB_AUDIENCE;
 
 /*
 |--------------------------------------------------------------------------
-| Helpers
+| Plain-text extraction
 |--------------------------------------------------------------------------
 */
 
-async function verifyPubSubToken(token) {
-  const ticket = await googleOAuthClient.verifyIdToken({
-    idToken: token,
-    audience: pubSubAudience,
-  });
-
-  return ticket.getPayload();
-}
-
-function extractPlainText(payload) {
+export function extractPlainText(payload) {
   // Direct body
   if (payload.body?.data) {
     return Buffer.from(payload.body.data, 'base64').toString('utf8');
@@ -58,7 +54,13 @@ function extractPlainText(payload) {
   return null;
 }
 
-function isLead(fromHeader, body) {
+/*
+|--------------------------------------------------------------------------
+| Lead detection & parsing
+|--------------------------------------------------------------------------
+*/
+
+export function isLead(fromHeader, body) {
   const leadSenders = /zillow\.com|realtor\.com/i;
   if (leadSenders.test(fromHeader)) return true;
 
@@ -66,7 +68,7 @@ function isLead(fromHeader, body) {
   return leadKeywords.test(body);
 }
 
-function regexParseLead(body) {
+export function regexParseLead(body) {
   const email = body.match(/[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}/)?.[0] ?? null;
   const phone = body.match(/(\+?1[\s\-.]?)?\(?\d{3}\)?[\s\-.]?\d{3}[\s\-.]?\d{4}/)?.[0] ?? null;
   const property = body.match(/(?:property|home|listing|address)[:\s]+([^\n]+)/i)?.[1]?.trim() ?? null;
@@ -77,11 +79,11 @@ function regexParseLead(body) {
   return { email, phone, property, zillowId, realtorId, name };
 }
 
-function isParseComplete(parsed) {
+export function isParseComplete(parsed) {
   return parsed.email !== null && parsed.phone !== null && parsed.property !== null;
 }
 
-async function aiParseLead(body) {
+export async function aiParseLead(body) {
   const response = await openai.chat.completions.create({
     model: 'gpt-4o-mini',
     messages: [
@@ -105,7 +107,16 @@ async function aiParseLead(body) {
   return JSON.parse(text);
 }
 
-export async function checkEmails(emails) { // TODO
+/*
+|--------------------------------------------------------------------------
+| Email scanning — accepts an array of normalized email objects.
+| Each object must have: { payload, id }
+| payload must be a Gmail-style payload OR a pre-normalized object with
+| { headers: [{name, value}], body: string } set by the caller.
+|--------------------------------------------------------------------------
+*/
+
+export async function checkEmails(emails) {
   // Named 'results' to avoid shadowing the imported 'leads' table
   const results = [];
 
@@ -120,7 +131,7 @@ export async function checkEmails(emails) { // TODO
       ? 'realtor'
       : 'unknown';
 
-    const body = extractPlainText(email.payload);
+    const body = email.payload?.bodyText ?? extractPlainText(email.payload);
 
     if (!body) continue;
 
@@ -141,83 +152,18 @@ export async function checkEmails(emails) { // TODO
       subject,
       from,
       source,
-      gmailMessageId: email.id,
+      gmailMessageId: email.id ?? null,
     });
   }
 
   return results;
 }
 
-async function readNewEmails(oauth, newHistoryId) {
-  const oauth2Client = new OAuth2Client(
-    process.env.GOOGLE_CLIENT_ID,
-    process.env.GOOGLE_CLIENT_SECRET,
-    process.env.GOOGLE_REDIRECT_URI
-  );
-
-  oauth2Client.setCredentials({
-    refresh_token: oauth.refreshToken,
-  });
-
-  const accessTokenResponse = await oauth2Client.getAccessToken();
-  const accessToken = accessTokenResponse.token;
-
-  const startHistoryId = oauth.lastHistoryId;
-
-  if (!startHistoryId) {
-    throw new Error('No stored historyId. Initialize it when creating the watch.');
-  }
-
-  const historyResponse = await fetch(
-    `https://gmail.googleapis.com/gmail/v1/users/me/history?startHistoryId=${startHistoryId}`,
-    {
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-      },
-    }
-  );
-
-  if (!historyResponse.ok) {
-    throw new Error(await historyResponse.text());
-  }
-
-  const historyData = await historyResponse.json();
-
-  const messageIds = new Set();
-
-  for (const history of historyData.history ?? []) {
-    for (const added of history.messagesAdded ?? []) {
-      messageIds.add(added.message.id);
-    }
-  }
-
-  const emails = [];
-
-  for (const messageId of messageIds) {
-    const messageResponse = await fetch(
-      `https://gmail.googleapis.com/gmail/v1/users/me/messages/${messageId}?format=full`,
-      {
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-        },
-      }
-    );
-
-    if (!messageResponse.ok) {
-      continue;
-    }
-
-    emails.push(await messageResponse.json());
-  }
-
-  // Save the new history id
-  await db
-    .update(oauthAccounts)
-    .set({ lastHistoryId: newHistoryId })
-    .where(eq(oauthAccounts.id, oauth.id));
-
-  return emails;
-}
+/*
+|--------------------------------------------------------------------------
+| Property matching
+|--------------------------------------------------------------------------
+*/
 
 // Splits a string into lowercase tokens (words/numbers).
 function tokenize(str) {
@@ -233,6 +179,11 @@ function tokenize(str) {
 //      (handles "Apt 2F" matching a DB addressLine2 of "2F").
 export function matchProperty(parsedPropertyStr, openProperty) {
   if (!parsedPropertyStr) return null;
+
+  if (
+    parsedPropertyStr.source === openProperty.source &&
+    parsedPropertyStr.externalId === openProperty.externalId
+  ) return openProperty;
 
   const needle = parsedPropertyStr.toLowerCase();
   const addr = `${openProperty.addressLine1} ${openProperty.addressLine2 ?? ''}`.toLowerCase().trim();
@@ -252,6 +203,12 @@ export function matchProperty(parsedPropertyStr, openProperty) {
 
   return null;
 }
+
+/*
+|--------------------------------------------------------------------------
+| Duplicate detection
+|--------------------------------------------------------------------------
+*/
 
 // Returns only new, valid leads — filtering out duplicates.
 // Each returned item is { parsedLead, propertyId } ready to insert.
@@ -341,111 +298,93 @@ export async function checkDuplicates(parsedLeads, user) {
   return newLeads;
 }
 
-
-function sendSMS(phoneNumber) {
-
-}
-
-
-function sendEmail(email) {
-  
-}
-
-
-
-function sendInitalMessage(newLeads) {
-  
-  for (const lead of newLeads) {
-    
-    if (lead.phone) {
-      sendSMS(lead.phone);
-    } else if (lead.email) {
-      sendEmail(lead.email);
-    } else {
-      throw Error("Nither phone nor email was provided");
-    }
-
-    //await db;
-  }
-}
-
-
 /*
 |--------------------------------------------------------------------------
-| Routes
+| Initial outreach
 |--------------------------------------------------------------------------
 */
 
-pubsubEmailWebhook.post('/gmail', async (req, res) => {
+/* Sends an initial outbound SMS to a newly created lead.
+ * Creates or finds an SMS conversation, generates an AI opening message,
+ * sends it via Twilio, and saves it to the database.
+ *
+ * Parameters:
+ *   lead: object — the newly inserted lead record from the database
+ */
+export async function sendInitialSms(lead) {
+  const agentPhone = process.env.TWILIO_FROM_NUMBER;
 
-  // AUthentication Layer
-  try {
-    const auth = req.headers.authorization;
+  const conversation = await findOrCreateSmsConversation(lead.id, lead.phone, agentPhone);
 
-    if (!auth?.startsWith('Bearer ')) {
-      return res.status(401).send('Unauthorized');
-    }
+  // No prior history or notes for a brand-new lead
+  const { reply } = await generateSmsReply(lead, conversation, '', null, [], []);
 
-    const token = auth.substring(7);
+  await twilioSendSMS(lead.phone, reply);
 
-    const payload = await verifyPubSubToken(token);
+  await saveSmsMessage(conversation.id, 'outbound', reply, null);
+}
 
-    if (payload.email !== process.env.GOOGLE_PUB_SUB_AUTH_SERVICE_ACCOUNT) {
-      return res.sendStatus(401);
-    }
-
-    const pubSubMsgEncoded = req.body.message.data;
-
-    const pubSubMsgDecoded = JSON.parse(
-      Buffer.from(pubSubMsgEncoded, 'base64').toString('utf8')
-    );
-
-    const [oauthAcc] = await db
-      .select()
-      .from(oauthAccounts)
-      .innerJoin(users, eq(oauthAccounts.userId, users.id))
-      .where(eq(users.email, pubSubMsgDecoded.emailAddress))
-      .limit(1);
-
-    if (!oauthAcc) {
-      console.log("we did not find the oauth Account!")
-      return res.sendStatus(200); // Ignore unrecognized email
-    }
-
-    const emails = await readNewEmails(oauthAcc.oauth_accounts, pubSubMsgDecoded.historyId);
-    if (emails.length === 0) return res.sendStatus(200);
-
-    const parsedLeads = await checkEmails(emails);
-    if (parsedLeads.length === 0) return res.sendStatus(200);
-
-    const newLeads = await checkDuplicates(parsedLeads, oauthAcc.users);
-    if (newLeads.length === 0) return res.sendStatus(200);
-
-    await db.insert(leads).values(
-      newLeads.map(({ parsedLead, propertyId }) => ({
-        propertyId: propertyId ?? null,
-        userId: oauthAcc.users.id,
-        name: parsedLead.name ?? null,
-        email: parsedLead.email ?? null,
-        phone: parsedLead.phone ?? null,
-        source: parsedLead.source,
-        sourceId: parsedLead.zillowId ?? parsedLead.realtorId ?? 'unknown',
-        status: 'new',
-      }))
-    );
-
-  sendInitalMessage(newLeads);
-
-  console.log(
-    'Leads accepted:',
-    newLeads.map(({ parsedLead }) => parsedLead.email ?? '(no email)')
+/* Sends an initial outbound email to a newly created lead.
+ * Creates or finds an email conversation, generates an AI opening message,
+ * sends it via the agent's email account, and saves it to the database.
+ *
+ * Parameters:
+ *   lead:              object — the newly inserted lead record from the database
+ *   agentEmail:        string — the agent's email address
+ *   oauthRefreshToken: string — the agent's OAuth refresh token
+ */
+export async function sendInitialEmail(lead, agentEmail, oauthRefreshToken) {
+  const conversation = await findOrCreateEmailConversation(
+    lead.id,
+    agentEmail,
+    [lead.email],
+    null,
+    null,
+    null,
   );
 
-    res.sendStatus(200);
-  } catch (err) {
-    console.error(err);
-    res.sendStatus(401);
-  }
-});
+  // No prior history or notes for a brand-new lead
+  const { subject, body } = await generateEmailReply(
+    lead,
+    conversation,
+    null,
+    '',
+    null,
+    [],
+    [],
+  );
 
-export default pubsubEmailWebhook;
+  await sendAndSaveEmail(
+    oauthRefreshToken,
+    agentEmail,
+    lead.email,
+    subject,
+    body,
+    conversation.id,
+  );
+}
+
+/* Sends the initial outreach message to each newly inserted lead.
+ * Prefers SMS if the lead has a phone number, falls back to email.
+ * Logs a warning and skips the lead if neither is available.
+ *
+ * Parameters:
+ *   insertedLeads:     object[] — the full lead records returned from the DB insert
+ *   agentEmail:        string   — the agent's email address
+ *   oauthRefreshToken: string   — the agent's OAuth refresh token
+ */
+export async function sendInitialMessages(insertedLeads, agentEmail, oauthRefreshToken) {
+  for (const lead of insertedLeads) {
+    try {
+      if (lead.phone) {
+        await sendInitialSms(lead);
+      } else if (lead.email) {
+        await sendInitialEmail(lead, agentEmail, oauthRefreshToken);
+      } else {
+        console.warn('Lead has neither phone nor email, skipping initial message:', lead.id);
+      }
+    } catch (err) {
+      console.error(`Failed to send initial message to lead ${lead.id}:`, err);
+    }
+  }
+}

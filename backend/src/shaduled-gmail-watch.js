@@ -127,7 +127,7 @@ async function refreshGmailWatch(req, res) {
   });
 }
 
-schaduledGmailWatchRouter.get('/daily', async (req, res) => {
+schaduledGmailWatchRouter.get('/gmail-watch-reset/daily', async (req, res) => {
   return refreshGmailWatch(req, res);
 });
 

@@ -1,11 +1,21 @@
 import twilio from 'twilio';
 import express from 'express';
 import { db } from '../db/index.js';
-import { leads } from '../db/schema.js';
+import { leads, conversations, leadTasks } from '../db/schema.js';
 import { eq } from 'drizzle-orm';
 import { sendSMS } from './phone.js';
-import { loadSmsHistory, findOrCreateSmsConversation, saveSmsMessage, generateSmsReply } from './sms-helpers.js';
-import {  loadLeadNotes, saveLeadNote, saveLeadTask, loadPropertyDescription } from './load-lead-helpers.js'
+import {
+  loadSmsHistory,
+  findOrCreateSmsConversation,
+  saveSmsMessage,
+  generateSmsReply,
+} from './sms-helpers.js';
+import {
+  loadLeadNotes,
+  saveLeadNote,
+  saveLeadTask,
+  loadPropertyDescription,
+} from './load-lead-helpers.js';
 
 const router = express.Router();
 
@@ -44,8 +54,13 @@ const twilioAuthToken = process.env.TWILIO_AUTH_TOKEN;
  *   - Calls OpenAI GPT-4o-mini to generate a structured reply
  *   - Finds or creates a conversations record for this lead's SMS thread
  *   - Saves the inbound SMS to the sms table
+ *   - Updates lastLeadMessageAt and resets unansweredFollowups on the conversation
  *   - Sends an outbound SMS reply via Twilio REST API (sendSMS)
  *   - Saves the outbound SMS reply to the sms table
+ *   - Updates lastAgentMessageAt on the conversation
+ *   - Updates conversationState if the AI returned a state update
+ *   - Marks conversation as opted_out if the lead replied STOP
+ *   - Marks lead status as 'ready' and creates an agent task if AI detects readyToBook
  *   - Optionally inserts a new lead note into the lead_notes table
  *   - Optionally inserts a new lead task into the lead_tasks table
  */
@@ -91,41 +106,93 @@ router.post('/sms', express.urlencoded({ extended: false }), async (req, res) =>
       console.warn(`Inbound SMS from unknown number: ${fromNumber}`);
     }
 
-    // Load conversation history and notes only if we have a known lead
+    // Find or create the SMS conversation record — returns the full conversation record.
+    // We do this before generating the AI reply so we can pass the conversation
+    // context (status, unansweredFollowups, conversationState, etc.) to the AI.
+    let conversation = null;
+    if (lead) {
+      conversation = await findOrCreateSmsConversation(lead.id, fromNumber, toNumber);
+    }
+
+    // If the conversation is not active (e.g. converted, cold, opted_out), do not auto-reply.
+    if (conversation && conversation.status !== 'active') {
+      res.set('Content-Type', 'text/xml');
+      return res.status(200).send('<Response></Response>');
+    }
+
+    // Save the inbound message — also updates lastLeadMessageAt and resets unansweredFollowups.
+    if (conversation) {
+      await saveSmsMessage(conversation.id, 'inbound', inboundText, inboundMessageSid);
+    }
+
+    // Load conversation history and notes only if we have a known lead.
     const history = lead ? await loadSmsHistory(lead.id) : [];
     const notes = lead ? await loadLeadNotes(lead.id) : [];
     const propertyDescription = lead ? await loadPropertyDescription(lead.id) : null;
 
-    const { reply, addNote, addTask } = await generateSmsReply(
+    // Generate the AI reply — pass the full conversation record for context.
+    const { reply, addNote, addTask, updateConversationState, readyToBook, optedOut } = await generateSmsReply(
       lead,
+      conversation,
       inboundText,
       propertyDescription,
       history,
       notes,
     );
 
-    // Find or create the SMS conversation record for this lead,
-    // then save the inbound message before sending the reply.
-    let conversationId = null;
-    if (lead) {
-      conversationId = await findOrCreateSmsConversation(lead.id, fromNumber, toNumber);
-      await saveSmsMessage(conversationId, 'inbound', inboundText, inboundMessageSid);
+    // If the lead opted out, update the conversation status and stop — do not send a reply.
+    if (optedOut && conversation) {
+      await db
+        .update(conversations)
+        .set({ status: 'opted_out' })
+        .where(eq(conversations.id, conversation.id));
+
+      if (addNote && lead) {
+        await saveLeadNote(lead.id, addNote);
+      }
+
+      res.set('Content-Type', 'text/xml');
+      return res.status(200).send('<Response></Response>');
     }
 
-    // Send the reply via Twilio and get back the MessageSid
+    // Send the reply via Twilio and get back the MessageSid.
     const twilioMessage = await sendSMS(fromNumber, reply);
 
-    // Save the outbound reply to the database
-    if (conversationId) {
-      await saveSmsMessage(conversationId, 'outbound', reply, twilioMessage.sid);
+    if (conversation) {
+      // Save the outbound reply — also updates lastAgentMessageAt.
+      await saveSmsMessage(conversation.id, 'outbound', reply, twilioMessage.sid);
+
+      // Persist AI conversation state update if provided.
+      if (updateConversationState !== null && updateConversationState !== undefined) {
+        await db
+          .update(conversations)
+          .set({ conversationState: updateConversationState })
+          .where(eq(conversations.id, conversation.id));
+      }
     }
 
-    // Persist note if GPT flagged one
+    // If the lead is ready to book, update their status and create an urgent agent task.
+    if (lead && readyToBook && lead.status !== 'ready') {
+      await db
+        .update(leads)
+        .set({ status: 'ready' })
+        .where(eq(leads.id, lead.id));
+
+      await db.insert(leadTasks).values({
+        leadId: lead.id,
+        title: `${lead.name || 'Lead'} is ready to book an appointment — follow up now!`,
+        dueDate: null,
+      });
+
+      console.log(`Lead ${lead.id} marked as ready to book.`);
+    }
+
+    // Persist note if GPT flagged one.
     if (lead && addNote) {
       await saveLeadNote(lead.id, addNote);
     }
 
-    // Persist task if GPT flagged one
+    // Persist task if GPT flagged one.
     if (lead && addTask?.title) {
       await saveLeadTask(lead.id, addTask.title, addTask.dueDate || null);
     }
@@ -133,6 +200,7 @@ router.post('/sms', express.urlencoded({ extended: false }), async (req, res) =>
     // Respond with empty TwiML so Twilio knows the webhook was received.
     res.set('Content-Type', 'text/xml');
     return res.status(200).send('<Response></Response>');
+
   } catch (err) {
     console.error('SMS webhook error:', err);
     return res.status(500).send('Internal Server Error');

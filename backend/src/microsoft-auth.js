@@ -3,20 +3,18 @@ import { eq, and } from 'drizzle-orm';
 import { db } from '../db/index.js';
 import { users, oauthAccounts } from '../db/schema.js';
 import { createToken, verifyToken } from './jwt.js';
-import { msalClient } from './outlook.js'
+import { msalClient } from './outlook.js';
 import { ConfidentialClientApplication } from '@azure/msal-node';
-
-
 
 const microsoftAuthRouter = Router();
 
 const clientId = process.env.MICROSOFT_CLIENT_ID;
 const clientSecret = process.env.MICROSOFT_CLIENT_SECRET;
+const redirectUri = process.env.MICROSOFT_REDIRECT_URI;
 
 // Microsoft expects space‑separated scopes in the authorization URL.
 const SCOPES_LIST = process.env.MICROSOFT_SCOPES.split(',');
 const SCOPES = SCOPES_LIST.join(' ');
-
 
 /*
 |--------------------------------------------------------------------------
@@ -24,15 +22,13 @@ const SCOPES = SCOPES_LIST.join(' ');
 |--------------------------------------------------------------------------
 */
 
-
 async function createMicrosoftUrl(promptConsent = false) {
-  
   const authUrl = await msalClient.getAuthCodeUrl({
     scopes: SCOPES_LIST,
     redirectUri: process.env.MICROSOFT_REDIRECT_URI,
     ...(promptConsent && { prompt: 'consent' }),
   });
-  
+
   return authUrl;
 }
 
@@ -56,8 +52,6 @@ microsoftAuthRouter.get('/login', async (req, res) => {
 
   res.redirect(authUrl);
 });
-
-
 
 microsoftAuthRouter.get('/auth', async (req, res) => {
   const code = req.query.code;
@@ -96,7 +90,7 @@ microsoftAuthRouter.get('/auth', async (req, res) => {
     const tokens = await tokenResponse.json();
     const accessToken = tokens.access_token;
     const refreshToken = tokens.refresh_token; // may be undefined if scope offline_access not present
-        
+
     // Fetch the user's Microsoft profile.
     const userRes = await fetch('https://graph.microsoft.com/v1.0/me', {
       headers: {
@@ -159,7 +153,7 @@ microsoftAuthRouter.get('/auth', async (req, res) => {
       }
     } else {
       // First‑time sign‑in — create the local user and link the Microsoft account.
-      
+
       if (!refreshToken) {
         const authUrl = await createMicrosoftUrl(true);
         return res.redirect(authUrl);
@@ -180,7 +174,7 @@ microsoftAuthRouter.get('/auth', async (req, res) => {
         return res.status(409).send('User already exists. Try authenticating with Google');
       }
       const user = userDb[0];
-      
+
       await db.insert(oauthAccounts).values({
         userId: user.id,
         provider: 'microsoft',
@@ -209,8 +203,6 @@ microsoftAuthRouter.get('/auth', async (req, res) => {
     });
   }
 });
-
-
 
 microsoftAuthRouter.get('/status', (req, res) => {
   const token = req.cookies.token;

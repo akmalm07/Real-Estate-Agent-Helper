@@ -75,7 +75,7 @@ export async function loadSmsHistory(leadId) {
  *   toNumber:   string — our Twilio phone number (E.164)
  *
  * Returns:
- *   number — the conversation ID
+ *   conversation record — either the existing or newly created conversation
  */
 export async function findOrCreateSmsConversation(leadId, fromNumber, toNumber) {
   const existing = await db
@@ -90,7 +90,7 @@ export async function findOrCreateSmsConversation(leadId, fromNumber, toNumber) 
     .limit(1);
 
   if (existing.length > 0) {
-    return existing[0].id;
+    return existing[0];
   }
 
   // Create a new SMS conversation for this lead.
@@ -103,30 +103,66 @@ export async function findOrCreateSmsConversation(leadId, fromNumber, toNumber) 
       initialSender: { phone: fromNumber },
       initialRecipient: [{ phone: toNumber }],
     })
-    .returning({ id: conversations.id });
+    .returning();
 
-  return inserted[0].id;
+  return inserted[0];
 }
 
-/* Saves an SMS message (inbound or outbound) to the sms table.
+/* Saves an SMS message (inbound or outbound) to the sms table and updates
+ * the relevant timestamp on the conversation record.
+ *
+ * - Inbound messages update lastLeadMessageAt and reset unansweredFollowups to 0.
+ * - Outbound messages update lastAgentMessageAt.
  *
  * Parameters:
- *   conversationId:    number        — the conversation this message belongs to
+ *   conversationId:    number           — the conversation this message belongs to
  *   direction:         'inbound' | 'outbound'
- *   body:              string        — the message text
- *   externalMessageId: string | null — Twilio MessageSid if available
+ *   body:              string           — the message text
+ *   externalMessageId: string | null    — Twilio MessageSid if available
  */
 export async function saveSmsMessage(conversationId, direction, body, externalMessageId = null) {
+  const now = new Date();
+
   await db.insert(sms).values({
     conversationId,
     direction,
     body,
     externalMessageId,
-    sentAt: new Date(),
+    sentAt: now,
   });
+
+  if (direction === 'inbound') {
+    // Lead replied — update lastLeadMessageAt and reset unansweredFollowups.
+    await db
+      .update(conversations)
+      .set({
+        lastLeadMessageAt: now,
+        unansweredFollowups: 0,
+      })
+      .where(eq(conversations.id, conversationId));
+  } else {
+    // Outbound message sent — update lastAgentMessageAt.
+    await db
+      .update(conversations)
+      .set({ lastAgentMessageAt: now })
+      .where(eq(conversations.id, conversationId));
+  }
 }
 
-
-export async function generateSmsReply(lead, inboundSubject, inboundBody, propertyDescription, history, notes) {
-  return generateAiReply('sms', lead, inboundBody, null, propertyDescription, history, notes);
+/* Generates an AI SMS reply using GPT-4o-mini.
+ * Delegates to generateAiReply() in ai-helpers.js with mode set to 'sms'.
+ *
+ * Parameters:
+ *   lead:                object | null — the lead record from the database
+ *   conversation:        object | null — the conversation record from the database
+ *   inboundBody:         string        — the SMS body sent by the lead
+ *   propertyDescription: string | null
+ *   history:             Array         — prior SMS messages from loadSmsHistory()
+ *   notes:               Array         — lead note strings from loadLeadNotes()
+ *
+ * Returns:
+ *   { reply: string, addNote: string | null, addTask: { title: string, dueDate: string | null } | null, updateConversationState: object | null, readyToBook: boolean }
+ */
+export async function generateSmsReply(lead, conversation, inboundBody, propertyDescription, history, notes) {
+  return generateAiReply('sms', lead, conversation, inboundBody, null, propertyDescription, history, notes);
 }
