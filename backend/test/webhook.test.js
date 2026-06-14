@@ -1,11 +1,9 @@
-import 'dotenv/config';
-
 import { describe, it } from 'node:test';
 
 import assert from 'node:assert/strict';
 
 // We test the pure/exported helpers directly without hitting the DB or network.
-import { checkEmails, matchProperty } from '../src/webhook.js';
+import { checkEmails, matchProperty } from '../src/email-webhook-helpers.js';
 
 /*
 |--------------------------------------------------------------------------
@@ -157,6 +155,8 @@ describe('matchProperty', () => {
     id: 42,
     addressLine1: '123 Main Street',
     addressLine2: 'Apt 4B',
+    source: null,
+    externalId: null,
   };
 
   it('returns the property when the needle is contained in the address', () => {
@@ -190,13 +190,13 @@ describe('matchProperty', () => {
   });
 
   it('works when addressLine2 is null', () => {
-    const propNoLine2 = { id: 7, addressLine1: '50 Elm St', addressLine2: null };
+    const propNoLine2 = { id: 7, addressLine1: '50 Elm St', addressLine2: null, source: null, externalId: null };
     const result = matchProperty('50 Elm St', propNoLine2);
     assert.deepEqual(result, propNoLine2);
   });
 
   it('matches when addressLine2 is "2F" and needle contains "Apt 2F"', () => {
-    const propWithUnit = { id: 99, addressLine1: '123 Main Street', addressLine2: '2F' };
+    const propWithUnit = { id: 99, addressLine1: '123 Main Street', addressLine2: '2F', source: null, externalId: null };
     // "Apt 2F" tokens: ["apt", "2f"] — "apt" is NOT in addr tokens ["123","main","street","2f"]
     // so this correctly does NOT match — the unit label mismatch is intentional.
     // The lead would need to say "2F" or "123 Main Street 2F" to match.
@@ -205,13 +205,13 @@ describe('matchProperty', () => {
   });
 
   it('matches when needle is just the unit token "2F" and addressLine2 is "2F"', () => {
-    const propWithUnit = { id: 99, addressLine1: '123 Main Street', addressLine2: '2F' };
+    const propWithUnit = { id: 99, addressLine1: '123 Main Street', addressLine2: '2F', source: null, externalId: null };
     const result = matchProperty('2F', propWithUnit);
     assert.deepEqual(result, propWithUnit);
   });
 
   it('matches when needle is "123 Main Street 2F" and addressLine2 is "2F"', () => {
-    const propWithUnit = { id: 99, addressLine1: '123 Main Street', addressLine2: '2F' };
+    const propWithUnit = { id: 99, addressLine1: '123 Main Street', addressLine2: '2F', source: null, externalId: null };
     const result = matchProperty('123 Main Street 2F', propWithUnit);
     assert.deepEqual(result, propWithUnit);
   });

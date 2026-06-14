@@ -117,7 +117,7 @@ function normalizeOutlookMessage(message) {
  * link without returning any messages (so the next notification will work).
  *
  * Parameters:
- *   oauth:       object — the oauth_accounts DB row (must have refreshToken, lastDeltaLink, id)
+ *   oauth: object — the oauth_accounts DB row (must have refreshToken, lastDeltaLink, id)
  *
  * Returns:
  *   object[] — array of normalized email objects ready for checkEmails()
@@ -264,10 +264,9 @@ outlookEmailWebhook.post('/outlook', async (req, res) => {
         }
 
         // Look up the oauth account by Microsoft provider user ID
-        const [oauthAcc] = await db
+        const oauthResults = await db
           .select()
           .from(oauthAccounts)
-          .innerJoin(users, eq(oauthAccounts.userId, users.id))
           .where(
             and(
               eq(oauthAccounts.providerUserId, providerUserId),
@@ -276,12 +275,28 @@ outlookEmailWebhook.post('/outlook', async (req, res) => {
           )
           .limit(1);
 
+        const oauthAcc = oauthResults[0] ?? null;
+
         if (!oauthAcc) {
           console.log('OAuth account not found for provider user ID:', providerUserId);
           continue;
         }
 
-        const rawEmails = await readNewOutlookEmails(oauthAcc.oauth_accounts);
+        // Look up the user record separately to avoid innerJoin issues with the Neon HTTP driver
+        const userResults = await db
+          .select()
+          .from(users)
+          .where(eq(users.id, oauthAcc.userId))
+          .limit(1);
+
+        const user = userResults[0] ?? null;
+
+        if (!user) {
+          console.log('User not found for oauth account:', oauthAcc.id);
+          continue;
+        }
+
+        const rawEmails = await readNewOutlookEmails(oauthAcc);
 
         if (rawEmails.length === 0) continue;
 
@@ -289,7 +304,7 @@ outlookEmailWebhook.post('/outlook', async (req, res) => {
 
         if (parsedLeads.length === 0) continue;
 
-        const newLeads = await checkDuplicates(parsedLeads, oauthAcc.users);
+        const newLeads = await checkDuplicates(parsedLeads, user);
 
         if (newLeads.length === 0) continue;
 
@@ -298,7 +313,7 @@ outlookEmailWebhook.post('/outlook', async (req, res) => {
           .values(
             newLeads.map(({ parsedLead, propertyId }) => ({
               propertyId: propertyId ?? null,
-              userId: oauthAcc.users.id,
+              userId: user.id,
               name: parsedLead.name ?? null,
               email: parsedLead.email ?? null,
               phone: parsedLead.phone ?? null,
@@ -310,8 +325,8 @@ outlookEmailWebhook.post('/outlook', async (req, res) => {
 
         await sendInitialMessages(
           insertedLeads,
-          oauthAcc.users.email,
-          oauthAcc.oauth_accounts.refreshToken,
+          user.email,
+          oauthAcc.refreshToken,
         );
 
         console.log('Outlook leads accepted:', insertedLeads);

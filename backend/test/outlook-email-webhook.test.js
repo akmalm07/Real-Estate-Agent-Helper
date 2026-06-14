@@ -7,33 +7,10 @@ import assert from 'node:assert/strict';
 |--------------------------------------------------------------------------
 */
 
+import { db } from './mock-db.js';
+
 mock.module('../db/index.js', {
-  namedExports: {
-    db: {
-      select: () => ({
-        from: () => ({
-          innerJoin: () => ({
-            where: () => ({
-              limit: async () => [],
-            }),
-          }),
-          where: () => ({
-            limit: async () => [],
-          }),
-        }),
-      }),
-      insert: () => ({
-        values: () => ({
-          returning: async () => [],
-        }),
-      }),
-      update: () => ({
-        set: () => ({
-          where: async () => {},
-        }),
-      }),
-    },
-  },
+  namedExports: { db },
 });
 
 mock.module('../db/schema.js', {
@@ -51,7 +28,7 @@ mock.module('drizzle-orm', {
   },
 });
 
-mock.module('./outlook.js', {
+mock.module('../src/outlook.js', {
   namedExports: {
     msalClient: {
       acquireTokenByRefreshToken: async () => ({ accessToken: 'mock-access-token' }),
@@ -59,7 +36,7 @@ mock.module('./outlook.js', {
   },
 });
 
-mock.module('./email-webhook-helpers.js', {
+mock.module('../src/email-webhook-helpers.js', {
   namedExports: {
     checkEmails: async () => [],
     checkDuplicates: async () => [],
@@ -68,18 +45,16 @@ mock.module('./email-webhook-helpers.js', {
 });
 
 // Mock global fetch for Graph API calls
-const mockFetchResponses = new Map();
-
 global.fetch = async (url, options) => {
-  const handler = mockFetchResponses.get('default');
-  if (handler) return handler(url, options);
-
   return {
     ok: true,
     json: async () => ({ value: [], '@odata.deltaLink': 'https://graph.microsoft.com/delta?token=abc' }),
     text: async () => '',
   };
 };
+
+// Set the client state env var used by the route handler
+process.env.MICROSOFT_WEBHOOK_CLIENT_STATE = 'test-secret';
 
 import express from 'express';
 import outlookEmailWebhook from '../src/outlook-email-webhook.js';
@@ -96,17 +71,6 @@ app.use('/webhook', outlookEmailWebhook);
 */
 
 import http from 'node:http';
-
-function request(app) {
-  return {
-    get(path) {
-      return makeRequest(app, 'GET', path, null);
-    },
-    post(path, body) {
-      return makeRequest(app, 'POST', path, body);
-    },
-  };
-}
 
 function makeRequest(app, method, path, body) {
   return new Promise((resolve, reject) => {
@@ -176,7 +140,7 @@ describe('POST /webhook/outlook — change notification handler', () => {
     const body = {
       value: [
         {
-          clientState: process.env.MICROSOFT_WEBHOOK_CLIENT_STATE ?? 'test-secret',
+          clientState: 'test-secret',
           resource: 'Users/user-id-123/Messages/msg-id-456',
           changeType: 'created',
           subscriptionId: 'sub-001',

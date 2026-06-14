@@ -16,7 +16,7 @@ import {
   loadPropertyDescription,
 } from './load-lead-helpers.js';
 
-const emailWebhookRouter = Router();
+const emailDraftWebhookRouter = Router();
 
 /*
 |--------------------------------------------------------------------------
@@ -262,7 +262,7 @@ export async function handleInboundLeadEmail(parsedEmail) {
  *   - Calls OpenAI GPT-4o-mini to generate a draft
  *   - Does NOT send any email or write to the database
  */
-emailWebhookRouter.post('/draft', async (req, res) => {
+emailDraftWebhookRouter.post('/draft', async (req, res) => {
 
   const { leadId, inboundSubject, inboundBody } = req.body;
 
@@ -329,7 +329,7 @@ emailWebhookRouter.post('/draft', async (req, res) => {
   }
 });
 
-export default emailWebhookRouter;
+export default emailDraftWebhookRouter;
 
 
 
@@ -364,7 +364,7 @@ export default emailWebhookRouter;
  *   - Updates lastAgentMessageAt on the conversation
  */
 /*
-emailWebhookRouter.post('/email/send', async (req, res) => {
+emailDraftWebhookRouter.post('/email/send', async (req, res) => {
   const { leadId, subject, body } = req.body;
 
   if (!leadId || !subject || !body) {

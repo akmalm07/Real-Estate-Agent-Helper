@@ -12,7 +12,7 @@ import {
 
 const googleOAuthClient = new OAuth2Client();
 
-const pubsubEmailWebhook = Router();
+const pubsubEmailWebhook =  Router();
 
 const pubSubAudience = process.env.PUB_SUB_AUDIENCE;
 
@@ -23,6 +23,7 @@ const pubSubAudience = process.env.PUB_SUB_AUDIENCE;
 */
 
 async function verifyPubSubToken(token) {
+
   const ticket = await googleOAuthClient.verifyIdToken({
     idToken: token,
     audience: pubSubAudience,
@@ -136,7 +137,7 @@ async function readNewEmails(oauth, newHistoryId) {
  *   - Saves inbound lead reply emails and sends AI-generated responses
  */
 pubsubEmailWebhook.post('/gmail', async (req, res) => {
-
+  
   // Authentication layer
   try {
     const auth = req.headers.authorization;

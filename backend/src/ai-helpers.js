@@ -1,3 +1,6 @@
+//import dotenv from 'dotenv'
+//dotenv.config();
+
 import OpenAI from 'openai';
 
 const openai = new OpenAI({
@@ -228,15 +231,17 @@ ${sharedNoteTaskGuidelines}`;
 export async function generateAiReply(mode, lead, conversation, inboundText, inboundSubject, propertyDescription, history, notes) {
   // SMS opt-out: if the lead replied exactly "STOP" (case-INsensitive), halt immediately.
   // The caller is responsible for updating the conversation status to 'opted_out'.
-  if (mode === 'sms' && isOptOut(inboundText)) {
-    return {
-      reply: null,
-      addNote: 'Lead opted out by replying STOP.',
-      addTask: null,
-      updateConversationState: null,
-      readyToBook: false,
-      optedOut: true,
-    };
+  if (isOptOut(inboundText)) {
+    if (mode === 'sms') {
+      return {
+        reply: null,
+        addNote: 'Lead opted out by replying STOP.',
+        addTask: null,
+        updateConversationState: null,
+        readyToBook: false,
+        optedOut: true,
+      };
+    }
   }
 
   const messages = buildPrompt(mode, lead, conversation, inboundText, inboundSubject, propertyDescription, history, notes);

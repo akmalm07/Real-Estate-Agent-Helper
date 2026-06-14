@@ -10,29 +10,10 @@ import assert from 'node:assert/strict';
 |--------------------------------------------------------------------------
 */
 
-// Mock drizzle db
+import { db } from './mock-db.js';
+
 mock.module('../db/index.js', {
-  namedExports: {
-    db: {
-      select: () => ({
-        from: () => ({
-          where: () => ({
-            limit: async () => [],
-          }),
-        }),
-      }),
-      insert: () => ({
-        values: () => ({
-          returning: async () => [],
-        }),
-      }),
-      update: () => ({
-        set: () => ({
-          where: async () => {},
-        }),
-      }),
-    },
-  },
+  namedExports: { db },
 });
 
 mock.module('../db/schema.js', {
@@ -75,11 +56,11 @@ mock.module('openai', {
   },
 });
 
-mock.module('./phone.js', {
+mock.module('../src/phone.js', {
   namedExports: { sendSMS: async () => ({ sid: 'SM_mock' }) },
 });
 
-mock.module('./sms-helpers.js', {
+mock.module('../src/sms-helpers.js', {
   namedExports: {
     findOrCreateSmsConversation: async () => ({ id: 1 }),
     saveSmsMessage: async () => {},
@@ -87,7 +68,7 @@ mock.module('./sms-helpers.js', {
   },
 });
 
-mock.module('./email-helpers.js', {
+mock.module('../src/email-helpers.js', {
   namedExports: {
     findOrCreateEmailConversation: async () => ({ id: 1 }),
     saveEmailMessage: async () => {},
@@ -311,8 +292,8 @@ describe('matchProperty', () => {
     id: 1,
     addressLine1: '123 Main Street',
     addressLine2: 'Apt 4B',
-    source: null,
-    externalId: null,
+    source: 'zillow',
+    externalId: 'Z123',
   };
 
   it('returns null when parsedPropertyStr is null or empty', () => {
@@ -340,10 +321,14 @@ describe('matchProperty', () => {
     assert.equal(result, null);
   });
 
-  it('matches by source and externalId when both are present', () => {
-    const propWithIds = { id: 2, addressLine1: 'Any St', addressLine2: null, source: 'zillow', externalId: 'Z123' };
-    const result = matchProperty({ source: 'zillow', externalId: 'Z123' }, propWithIds);
-    assert.deepEqual(result, propWithIds);
+  it('matches by source and externalId when both are present on the object', () => {
+    const result = matchProperty({ source: 'zillow', externalId: 'Z123' }, openProperty);
+    assert.deepEqual(result, openProperty);
+  });
+
+  it('returns null when source/externalId object does not match', () => {
+    const result = matchProperty({ source: 'zillow', externalId: 'Z999' }, openProperty);
+    assert.equal(result, null);
   });
 });
 
@@ -454,7 +439,6 @@ describe('checkEmails', () => {
 
 describe('checkDuplicates', () => {
   it('returns all leads when there are no existing leads in the DB', async () => {
-    // The mock db always returns [] so there are no existing leads or properties.
     const parsedLeads = [
       { email: 'new@example.com', phone: '5551112222', property: '123 Main St', name: 'New Lead', source: 'zillow', zillowId: null, realtorId: null },
     ];

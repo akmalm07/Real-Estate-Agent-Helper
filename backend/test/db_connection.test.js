@@ -2,7 +2,7 @@ import 'dotenv/config';
 
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { eq, isNull } from 'drizzle-orm';
+import { eq } from 'drizzle-orm';
 
 import { db } from '../db/index.js';
 import {
@@ -36,11 +36,12 @@ test('full CRM relational flow (user => property => lead => convo => messages =>
   |--------------------------------------------------------------------------
   */
   const [prop] = await db.insert(properties).values({
-    user_id: user.id,
+    userId: user.id,
     status: 'open',
     addressLine1: '123 Main St',
     addressLine2: 'Unit 2',
     description: 'Test property',
+    source: 'unknown',
   }).returning();
 
   assert.ok(prop.id);
@@ -53,16 +54,17 @@ test('full CRM relational flow (user => property => lead => convo => messages =>
   */
   const [lead] = await db.insert(leads).values({
     propertyId: prop.id,
+    userId: user.id,
     name: 'Test Lead',
     email: 'lead@example.com',
     phone: '1234567890',
     source: 'zillow',
-    status: 'new',
+    status: 'active',
   }).returning();
 
   assert.ok(lead.id);
   assert.equal(lead.propertyId, prop.id);
-  assert.equal(lead.status, 'new');
+  assert.equal(lead.status, 'active');
 
   /*
   |--------------------------------------------------------------------------
@@ -71,11 +73,12 @@ test('full CRM relational flow (user => property => lead => convo => messages =>
   */
   const [unassignedLead] = await db.insert(leads).values({
     propertyId: null,
+    userId: user.id,
     name: 'Unassigned Lead',
     email: 'unassigned@example.com',
     phone: '0987654321',
-    source: 'realtor.com',
-    status: 'new',
+    source: 'realtor',
+    status: 'active',
   }).returning();
 
   assert.ok(unassignedLead.id);
@@ -100,6 +103,7 @@ test('full CRM relational flow (user => property => lead => convo => messages =>
       },
     ],
     externalThreadId: 'thread_test_123',
+    createdAt: new Date(),
   }).returning();
 
   assert.ok(conversation.id);

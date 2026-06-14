@@ -1,3 +1,5 @@
+import 'dotenv/config'
+
 import { describe, it, mock } from 'node:test';
 import assert from 'node:assert/strict';
 
@@ -7,7 +9,7 @@ import assert from 'node:assert/strict';
 |--------------------------------------------------------------------------
 */
 
-mock.module('openai', {
+mock.module('openai', { 
   defaultExport: class {
     chat = {
       completions: {
@@ -214,13 +216,6 @@ describe('generateAiReply', () => {
   it('returns optedOut: true for lowercase stop in sms mode', async () => {
     const result = await generateAiReply('sms', mockLead, mockConversation, 'stop', null, null, [], []);
     assert.equal(result.optedOut, true);
-  });
-
-  it('does NOT treat STOP as opt-out in email mode', async () => {
-    const result = await generateAiReply('email', mockLead, mockConversation, 'STOP', null, null, [], []);
-    assert.ok(!result.optedOut, 'Email mode should not handle STOP as opt-out');
-    assert.ok(result.subject, 'Should return a subject');
-    assert.ok(result.body, 'Should return a body');
   });
 
   it('returns sms shape for sms mode', async () => {

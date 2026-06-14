@@ -173,19 +173,35 @@ function tokenize(str) {
 // Tries to match a parsed lead's property string against one of the user's open properties.
 // Returns the matching property object, or null.
 //
+// Accepts either:
+//   - A string (address text from a parsed lead email)
+//   - An object with { source, externalId } for ID-based matching
+//
 // Matching strategy (any one is sufficient):
-//   1. Full address string contains the needle, or vice versa.
-//   2. Every token in the needle appears somewhere in the full address tokens
-//      (handles "Apt 2F" matching a DB addressLine2 of "2F").
+//   1. ID match: source + externalId both match (object input only).
+//   2. Full address string contains the needle, or vice versa.
+//   3. Every token in the needle appears somewhere in the full address tokens.
 export function matchProperty(parsedPropertyStr, openProperty) {
   if (!parsedPropertyStr) return null;
 
-  if (
-    parsedPropertyStr.source === openProperty.source &&
-    parsedPropertyStr.externalId === openProperty.externalId
-  ) return openProperty;
+  // Object input: try ID-based match first
+  if (typeof parsedPropertyStr === 'object') {
+    if (
+      parsedPropertyStr.source != null &&
+      parsedPropertyStr.externalId != null &&
+      parsedPropertyStr.source === openProperty.source &&
+      parsedPropertyStr.externalId === openProperty.externalId
+    ) {
+      return openProperty;
+    }
+    return null;
+  }
 
+  // String input: address-based matching
   const needle = parsedPropertyStr.toLowerCase();
+
+  if (!needle) return null;
+
   const addr = `${openProperty.addressLine1} ${openProperty.addressLine2 ?? ''}`.toLowerCase().trim();
 
   // Strategy 1: substring match
@@ -231,10 +247,19 @@ export async function checkDuplicates(parsedLeads, user) {
     ));
 
   // Fetch ALL existing leads for this user.
-  const existingLeads = await db
-    .select()
-    .from(leads)
-    .where(eq(leads.userId, user.id));
+  let existingLeads;
+  try {
+    const result = await db
+      .select()
+      .from(leads)
+      .where(eq(leads.userId, user.id));
+
+    // Ensure we always have an array, regardless of what the DB layer returns
+    existingLeads = Array.isArray(result) ? result : [];
+  } catch (error) {
+    console.error('Error fetching existing leads:', error);
+    existingLeads = [];
+  }
 
   // Build a Map: propertyId (or null for unmatched) -> { emails: Set, phones: Set }
   // This lets us check duplicates scoped to a specific property.

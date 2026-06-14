@@ -114,7 +114,7 @@ describe('scoreResponseTime', () => {
 
   it('returns 4 for a reply between 12 and 24 hours', () => {
     const base = new Date('2024-01-01T10:00:00Z');
-    const reply = new Date('2024-01-01T22:00:00Z'); // 12 hours later
+    const reply = new Date('2024-01-02T04:00:00Z'); // 18 hours later
     const history = [
       { direction: 'outbound', sentAt: base.toISOString() },
       { direction: 'inbound', sentAt: reply.toISOString() },

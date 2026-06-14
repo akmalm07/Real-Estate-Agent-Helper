@@ -28,11 +28,10 @@ export const propertyStatusEnum = pgEnum('property_status', ['draft', 'open', 'p
 
 export const entityTypeEnum = pgEnum('entity_type', ['lead', 'conversation', 'email', 'sms', 'task', 'property', 'custom']);
 
-export const leadSourceEnum = pgEnum('source_type', ['zillow', 'realtor', 'unknown']);
+// Consolidated source enum — used by both leads and properties.
+export const sourceEnum = pgEnum('source_type', ['zillow', 'realtor', 'unknown']);
 
 export const conversationStatus = pgEnum('conversation_status', ['active', 'cold', 'converted', 'not_interested', 'opted_out']);
-
-export const propertySourceEnum = pgEnum('property_source', ['zillow', 'realtor', 'unknown']);
 
 // Status of a lead in the CRM lifecycle.
 //   active          — lead is being worked, normal outreach continues
@@ -88,11 +87,16 @@ export const oauthAccounts = pgTable('oauth_accounts', {
   refreshToken: text('refresh_token')
     .notNull(),
 
+  // Gmail-specific — null for Microsoft accounts.
   gmailWatchExpiration: timestamp('gmail_watch_expiration', {
     withTimezone: true,
   }),
 
+  // Gmail-specific — null for Microsoft accounts.
   lastHistoryId: text('last_history_id'),
+
+  // Outlook-specific — null for Google accounts.
+  lastDeltaLink: text('last_delta_link'),
 
   createdAt: timestamp('created_at', {
     withTimezone: true,
@@ -103,17 +107,19 @@ export const oauthAccounts = pgTable('oauth_accounts', {
 
 /*
 |--------------------------------------------------------------------------
-| Property
+| PropertyCustom Error — Invalid / Expired Refresh Token
 |--------------------------------------------------------------------------
 */
 
 export const properties = pgTable('properties', {
   id: serial('id').primaryKey(),
 
+  // Every property must belong to a user (the agent who owns it).
   userId: integer('user_id')
     .references(() => users.id, {
       onDelete: 'cascade',
-    }),
+    })
+    .notNull(),
 
   status: propertyStatusEnum('status')
     .notNull(),
@@ -123,14 +129,14 @@ export const properties = pgTable('properties', {
 
   addressLine2: text('address_line_2'),
 
-  description: text('description')
-    .notNull(),
+  // Nullable — may not be available when a property is auto-created from a lead email.
+  description: text('description'),
 
   deletionDate: timestamp('deletion_date', {
     withTimezone: true,
   }),
 
-  source: propertySourceEnum('property_source')
+  source: sourceEnum('property_source')
     .notNull(),
 
   externalId: text('external_id'),
@@ -170,7 +176,7 @@ export const leads = pgTable('leads', {
 
   phone: text('phone'),
 
-  source: leadSourceEnum('source')
+  source: sourceEnum('source')
     .notNull(),
 
   sourceId: text('source_id'),
@@ -251,6 +257,14 @@ export const conversations = pgTable('conversations', {
     .notNull(),
 
   conversationState: jsonb('conversation_state'),
+
+  // defaultNow() added — was notNull() without a default, requiring manual supply on every insert.
+  createdAt: timestamp('created_at', {
+    withTimezone: true,
+  })
+    .defaultNow()
+    .notNull(),
+
 },
   (table) => [
     // recipient must be a non-empty array
@@ -453,6 +467,8 @@ export const activityLogs = pgTable('activity_logs', {
   entityType: entityTypeEnum('entity_type')
     .notNull(),
 
+  // No FK constraint — this is a polymorphic reference. The referenced table
+  // is determined by entityType (e.g. entityType='email' → email table).
   entityId: integer('entity_id')
     .notNull(),
 
