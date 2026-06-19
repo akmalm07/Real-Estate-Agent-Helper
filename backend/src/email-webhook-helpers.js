@@ -64,7 +64,8 @@ export function isLead(fromHeader, body) {
   const leadSenders = /zillow\.com|realtor\.com/i;
   if (leadSenders.test(fromHeader)) return true;
 
-  const leadKeywords = /new lead|buyer lead|seller lead|home inquiry|property inquiry|interested in your listing/i;
+  // Also detect referral language as a lead signal
+  const leadKeywords = /new lead|buyer lead|seller lead|home inquiry|property inquiry|interested in your listing|referred by|was referred|referral from|sent by|recommended by/i;
   return leadKeywords.test(body);
 }
 
@@ -76,7 +77,13 @@ export function regexParseLead(body) {
   const realtorId = body.match(/realtor\.com\/realestateandhomes-detail\/[^/]+-(\d+)/i)?.[1] ?? null;
   const name = body.match(/(?:name|contact|buyer|seller|from)[:\s]+([A-Z][a-z]+(?:\s[A-Z][a-z]+)+)/i)?.[1]?.trim() ?? null;
 
-  return { email, phone, property, zillowId, realtorId, name };
+  // Detect referral: look for common referral phrases in the body.
+  const isReferral = /referred by|was referred|referral from|sent by|recommended by/i.test(body);
+
+  // Try to extract who referred them — useful for the agent to follow up with.
+  const referredBy = body.match(/(?:referred by|referral from|sent by|recommended by)[:\s]+([A-Z][a-z]+(?:\s[A-Z][a-z]+)*)/i)?.[1]?.trim() ?? null;
+
+  return { email, phone, property, zillowId, realtorId, name, isReferral, referredBy };
 }
 
 export function isParseComplete(parsed) {
@@ -91,8 +98,10 @@ export async function aiParseLead(body) {
         role: 'system',
         content:
           'You are a data extraction assistant. Extract lead information from real estate emails. ' +
-          'Strictly return a JSON object with these keys: email, phone, property, zillowId, realtorId, name. ' +
-          'Use null for any field you cannot find. Return ONLY the JSON object, no explanation.',
+          'Strictly return a JSON object with these keys: email, phone, property, zillowId, realtorId, name, isReferral, referredBy. ' +
+          'isReferral should be true if the email indicates this lead was referred by someone (look for phrases like "referred by", "was referred", "referral from", "sent by", "recommended by"), false otherwise. ' +
+          'referredBy should be the name of the person who referred the lead, or null if not mentioned. ' +
+          'Use null for any other field you cannot find. Return ONLY the JSON object, no explanation.',
       },
       {
         role: 'user',
@@ -125,11 +134,9 @@ export async function checkEmails(emails) {
     const from = headers.find((h) => h.name.toLowerCase() === 'from')?.value ?? '';
     const subject = headers.find((h) => h.name.toLowerCase() === 'subject')?.value ?? '';
 
-    const source = /zillow\.com/i.test(from)
-      ? 'zillow'
-      : /realtor\.com/i.test(from)
-      ? 'realtor'
-      : 'unknown';
+    // Detect source from the sender domain first — most reliable signal.
+    const isZillow = /zillow\.com/i.test(from);
+    const isRealtor = /realtor\.com/i.test(from);
 
     const body = email.payload?.bodyText ?? extractPlainText(email.payload);
 
@@ -145,6 +152,25 @@ export async function checkEmails(emails) {
       } catch (err) {
         console.error('AI parsing failed:', err);
       }
+    }
+
+    // Determine source:
+    //   1. Zillow sender domain  → 'zillow'
+    //   2. Realtor sender domain → 'realtor'
+    //   3. Body or subject contains referral language, or AI/regex detected isReferral → 'referral'
+    //   4. Fallback              → 'unknown'
+    let source;
+    if (isZillow) {
+      source = 'zillow';
+    } else if (isRealtor) {
+      source = 'realtor';
+    } else if (
+      parsed.isReferral ||
+      /referred by|was referred|referral from|sent by|recommended by/i.test(subject)
+    ) {
+      source = 'referral';
+    } else {
+      source = 'unknown';
     }
 
     results.push({

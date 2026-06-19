@@ -8,6 +8,7 @@ import {
   timestamp,
   jsonb,
   check,
+  uniqueIndex,
 } from 'drizzle-orm/pg-core';
 
 import { sql } from 'drizzle-orm';
@@ -29,7 +30,10 @@ export const propertyStatusEnum = pgEnum('property_status', ['draft', 'open', 'p
 export const entityTypeEnum = pgEnum('entity_type', ['lead', 'conversation', 'email', 'sms', 'task', 'property', 'custom']);
 
 // Consolidated source enum — used by both leads and properties.
-export const sourceEnum = pgEnum('source_type', ['zillow', 'realtor', 'unknown']);
+// 'referral' = lead came in via a personal referral from an existing contact.
+export const sourceEnum = pgEnum('source_type', ['zillow', 'realtor', 'referral', 'unknown']);
+
+export const userSourceEnum = pgEnum('user_source', ['google', 'microsoft', 'manual']);
 
 export const conversationStatus = pgEnum('conversation_status', ['active', 'cold', 'converted', 'not_interested', 'opted_out']);
 
@@ -39,6 +43,18 @@ export const conversationStatus = pgEnum('conversation_status', ['active', 'cold
 //   archived        — lead is no longer active but kept for records
 //   pending_deletion — lead is scheduled for deletion
 export const leadStatusEnum = pgEnum('lead_status', ['active', 'ready', 'archived', 'pending_deletion']);
+
+// How many leads the agent handles per month.
+export const leadsPerMonthEnum = pgEnum('leads_per_month', ['0_25', '25_50', '50_100', '100_plus']);
+
+// Preferred first-contact channel.
+export const contactMethodEnum = pgEnum('contact_method', ['sms', 'email', 'phone', 'mix']);
+
+// Team size.
+export const teamSizeEnum = pgEnum('team_size', ['just_me', '2_5', '6_20', '20_plus']);
+
+
+export const contactTypeEnum = pgEnum('contact_type', ['sms', 'email', 'off', 'both']);
 
 /*
 |--------------------------------------------------------------------------
@@ -52,9 +68,34 @@ export const users = pgTable('users', {
   email: text('email')
     .notNull()
     .unique(),
+  
+  onboardComplete: boolean('onboard_complete')
+    .notNull()
+    .default(false),
+  
+  emailConfirmed: boolean('email_confirmed')
+    .default(false)
+    .notNull(),
 
   name: text('name')
     .notNull(),
+
+  newLeadNotify: contactTypeEnum('notify_new_lead')
+    .default('off')
+    .notNull(),
+  newMessageReplyNotify: contactTypeEnum('notify_new_message')
+    .default('off')
+    .notNull(),
+  weeklySummeryNotify: contactTypeEnum('notify_weekly_summery')
+    .default('off')
+    .notNull(),
+
+  phone: text('phone'),
+
+  // bcrypt hash of the user's password, if null, users authenticated through google
+  passwordHash: text('password_hash'),
+
+  source: userSourceEnum('source'),
 
   createdAt: timestamp('created_at', {
     withTimezone: true,
@@ -107,7 +148,55 @@ export const oauthAccounts = pgTable('oauth_accounts', {
 
 /*
 |--------------------------------------------------------------------------
-| PropertyCustom Error — Invalid / Expired Refresh Token
+| User Onboarding
+|--------------------------------------------------------------------------
+*/
+
+export const userOnboarding = pgTable('user_onboarding', {
+  id: serial('id').primaryKey(),
+
+  userId: integer('user_id')
+    .references(() => users.id, { onDelete: 'cascade' })
+    .notNull()
+    .unique(), // one onboarding record per user
+
+  // ── Step 1: Profile ──────────────────────────────────────────────────────
+  brokerage: text('brokerage'),                        // optional free text
+  primaryMarket: text('primary_market'),               // city, state, or zip
+  leadsPerMonth: leadsPerMonthEnum('leads_per_month'), // 0-25 | 25-50 | 50-100 | 100+
+
+  // ── Step 2: Lead Sources ─────────────────────────────────────────────────
+  // Array of selected sources, e.g. ["zillow", "facebook_ads", "referrals"]
+  leadSources: jsonb('lead_sources').notNull().default(sql`'[]'::jsonb`),
+  // Free-text "Other" source (max 50 chars enforced in application layer)
+  leadSourceOther: text('lead_source_other'),
+
+  // ── Step 3: Contact Preference ───────────────────────────────────────────
+  contactMethod: contactMethodEnum('contact_method')
+    .notNull(),
+
+  // ── Step 4: Team Size ────────────────────────────────────────────────────
+  teamSize: teamSizeEnum('team_size'),
+
+  // ── Step 5: Biggest Challenge ────────────────────────────────────────────
+  biggestChallenge: text('biggest_challenge'),
+
+  createdAt: timestamp('created_at', { withTimezone: true })
+    .defaultNow()
+    .notNull(),
+    
+  completedAt: timestamp('completed_at', { withTimezone: true })
+    .notNull(),
+
+  updatedAt: timestamp('updated_at', { withTimezone: true })
+    .defaultNow()
+    .$onUpdate(() => new Date())
+    .notNull(),
+});
+
+/*
+|--------------------------------------------------------------------------
+| Properties
 |--------------------------------------------------------------------------
 */
 
@@ -200,6 +289,12 @@ export const leads = pgTable('leads', {
   })
     .defaultNow()
     .notNull(),
+
+  updatedAt: timestamp('updated_at', {
+    withTimezone: true,
+  })
+    .defaultNow()
+    .notNull(),
 });
 
 /*
@@ -258,8 +353,13 @@ export const conversations = pgTable('conversations', {
 
   conversationState: jsonb('conversation_state'),
 
-  // defaultNow() added — was notNull() without a default, requiring manual supply on every insert.
   createdAt: timestamp('created_at', {
+    withTimezone: true,
+  })
+    .defaultNow()
+    .notNull(),
+
+  updatedAt: timestamp('updated_at', {
     withTimezone: true,
   })
     .defaultNow()
@@ -267,7 +367,6 @@ export const conversations = pgTable('conversations', {
 
 },
   (table) => [
-    // recipient must be a non-empty array
     check(
       'initial_recipient_is_non_empty_array',
       sql`
@@ -275,8 +374,6 @@ export const conversations = pgTable('conversations', {
         AND jsonb_array_length(${table.initialRecipient}) > 0
       `
     ),
-
-    // sender must be an object (not array, not scalar)
     check(
       'initial_sender_is_object',
       sql`
@@ -330,7 +427,6 @@ export const email = pgTable('email', {
     .notNull(),
 },
   (table) => [
-    // recipient must be a non-empty array
     check(
       'recipient_is_non_empty_array',
       sql`
@@ -338,16 +434,12 @@ export const email = pgTable('email', {
         AND jsonb_array_length(${table.recipient}) > 0
       `
     ),
-
-    // cc must be an array (can be empty but must be array type)
     check(
       'cc_is_array',
       sql`
         jsonb_typeof(${table.cc}) = 'array'
       `
     ),
-
-    // sender must be an object (not array, not scalar)
     check(
       'sender_is_object',
       sql`
@@ -483,3 +575,29 @@ export const activityLogs = pgTable('activity_logs', {
     .defaultNow()
     .notNull(),
 });
+
+
+
+export const confirmationCodes = pgTable(
+  'confirmation_codes',
+  {
+    email: text('email')
+      .notNull()
+      .unique(),
+
+    code: integer('code')
+      .notNull(),
+    
+    createdAt: timestamp('created_at', { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => ({
+    emailIdx: uniqueIndex('confirmation_email_unique').on(table.email),
+
+    confirmationCodeCheck: check(
+      'confirmation_code_six_digits',
+      sql`${table.code} >= 100000 AND ${table.code} <= 999999`
+    ),
+  })
+);

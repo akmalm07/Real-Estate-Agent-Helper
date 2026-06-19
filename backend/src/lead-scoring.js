@@ -12,7 +12,7 @@ import { generateAiLeadScore } from './ai-helpers.js';
 |   2.  Engagement Level        (15 pts) — reply/message count
 |   3.  Lead Status             (12 pts) — current CRM/conversation status
 |   4.  Response Time           (10 pts) — how quickly the lead replies
-|   5.  Lead Source             ( 8 pts) — origin quality (Zillow, Realtor.com, etc.)
+|   5.  Lead Source             ( 8 pts) — origin quality (referral > Zillow > Realtor.com > other)
 |   6.  Unanswered Follow-Ups   ( 8 pts) — number of ignored follow-ups
 |   7.  Property Interest       ( 7 pts) — whether the lead is linked to a property
 |   8.  Previous Interactions   ( 5 pts) — notes and tasks associated with the lead
@@ -93,8 +93,17 @@ export function scoreResponseTime(history) {
 /*
  * Criterion 5 — Lead Source
  *
- * Higher-intent sources score higher.
+ * Higher-intent / higher-trust sources score higher.
+ * Referrals are the highest quality source — they come with an existing
+ * trust relationship and convert at a significantly higher rate.
  * Max: 8 pts
+ *
+ * Source ranking:
+ *   referral  → 8 pts  (personal referral, highest trust)
+ *   zillow    → 7 pts  (high-intent marketplace lead)
+ *   realtor   → 6 pts  (high-intent marketplace lead)
+ *   other     → 3 pts  (unknown but present source)
+ *   none      → 1 pt   (no source recorded)
  *
  * Parameters:
  *   lead: object — the lead record from the database (has a `source` field)
@@ -104,9 +113,9 @@ export function scoreResponseTime(history) {
 export function scoreLeadSource(lead) {
   const source = (lead?.source || '').toLowerCase();
 
-  if (source.includes('referral')) return 8;
-  if (source.includes('zillow')) return 7;
-  if (source.includes('realtor')) return 6;
+  if (source === 'referral') return 8;
+  if (source === 'zillow') return 7;
+  if (source === 'realtor') return 6;
   if (source !== '') return 3; // Unknown but present source
   return 1;                    // No source recorded
 }
@@ -258,7 +267,7 @@ export function scoreUnansweredFollowUps(conversation) {
  *       engagementLevel:      number,  — 0–15
  *       leadStatus:           number,  — 0–12
  *       responseTime:         number,  — 0–10
- *       leadSource:           number,  — 0–8
+ *       leadSource:           number,  — 0–8  (referral=8, zillow=7, realtor=6, other=3, none=1)
  *       unansweredFollowUps:  number,  — 0–8
  *       propertyInterest:     number,  — 0–7
  *       previousInteractions: number,  — 0–5

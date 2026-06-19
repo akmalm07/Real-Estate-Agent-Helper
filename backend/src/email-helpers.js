@@ -9,9 +9,10 @@ import {
   properties,
 } from '../db/schema.js';
 import { eq, and } from 'drizzle-orm';
-import { createGmailAuthClient, sendEmail as gmailSend } from './gmail.js';
+import { createGmailAuthClient, sendEmail as gmailSend, sendReply as gmailSendReply } from './gmail.js';
 import { generateAiReply } from './ai-helpers.js';
 import { loadLeadNotes, loadPropertyDescription } from './load-lead-helpers.js';
+import { extractPlainText } from './email-webhook-helpers.js';
 
 /*
 |--------------------------------------------------------------------------
@@ -44,6 +45,7 @@ export async function loadEmailHistory(conversationId) {
     direction: m.direction,
     subject: m.subject || null,
     body: m.body || '',
+    externalMessageId: m.externalMessageId || null,
   }));
 }
 
@@ -183,7 +185,6 @@ export async function saveEmailMessage(
 */
 
 /* Generates an AI email reply using GPT-4o-mini.
- * Delegates to generateAiReply() in ai-helpers.js with mode set to 'email'.
  *
  * Parameters:
  *   lead:                object | null — the lead record from the database
@@ -195,7 +196,7 @@ export async function saveEmailMessage(
  *   notes:               Array         — lead note strings from loadLeadNotes()
  *
  * Returns:
- *   { subject: string, body: string, addNote: string | null, addTask: { title: string, dueDate: string | null } | null, updateConversationState: object | null, readyToBook: boolean }
+ *   { subject: string, body: string, addNote: string | null, addTask: object | null, updateConversationState: object | null, readyToBook: boolean }
  */
 export async function generateEmailReply(lead, conversation, inboundSubject, inboundBody, propertyDescription, history, notes) {
   return generateAiReply('email', lead, conversation, inboundBody, inboundSubject, propertyDescription, history, notes);
@@ -211,13 +212,19 @@ export async function generateEmailReply(lead, conversation, inboundSubject, inb
  * Gmail OAuth refresh token, then saves the sent message to the database
  * and updates lastAgentMessageAt on the conversation.
  *
+ * When inReplyToMessageId and threadId are provided the message is sent as
+ * a proper threaded reply (using In-Reply-To + References headers and the
+ * Gmail threadId). Otherwise a fresh email is sent.
+ *
  * Parameters:
- *   oauthRefreshToken: string — the agent's Gmail refresh token from oauth_accounts
- *   agentEmail:        string — the agent's email address (used as sender)
- *   toAddress:         string — the lead's email address
- *   subject:           string — the email subject
- *   body:              string — the email body
- *   conversationId:    number — the conversation to attach this message to
+ *   oauthRefreshToken:   string        — the agent's Gmail refresh token
+ *   agentEmail:          string        — the agent's email address (sender)
+ *   toAddress:           string        — the lead's email address
+ *   subject:             string        — the email subject
+ *   body:                string        — the email body
+ *   conversationId:      number        — the conversation to attach this message to
+ *   inReplyToMessageId:  string | null — RFC 2822 Message-ID of the message being replied to
+ *   threadId:            string | null — Gmail thread ID to place the reply into
  *
  * Returns:
  *   void
@@ -229,12 +236,30 @@ export async function sendAndSaveEmail(
   subject,
   body,
   conversationId,
+  inReplyToMessageId = null,
+  threadId = null,
 ) {
   const gmailAuthClient = await createGmailAuthClient(oauthRefreshToken);
-  const sentMessage = await gmailSend(gmailAuthClient, toAddress, subject, body);
 
-  // sentMessage is the raw Gmail API response; it contains `id` (the Gmail message ID).
-  // We store this as externalMessageId so future In-Reply-To lookups can match it.
+  let sentMessage;
+
+  if (inReplyToMessageId && threadId) {
+    // Send as a proper threaded reply with In-Reply-To + References headers.
+    sentMessage = await gmailSendReply(
+      gmailAuthClient,
+      toAddress,
+      subject,
+      body,
+      inReplyToMessageId,
+      threadId,
+    );
+  } else {
+    // No thread context — send a fresh email.
+    sentMessage = await gmailSend(gmailAuthClient, toAddress, subject, body);
+  }
+
+  // The Gmail API returns the Gmail message ID (not the RFC 2822 Message-ID).
+  // We store this so future In-Reply-To lookups can match it.
   const gmailMessageId = sentMessage?.id || null;
 
   const now = new Date();
@@ -251,31 +276,34 @@ export async function sendAndSaveEmail(
     now,
   );
 
-  // Update lastAgentMessageAt so the scheduler knows when the last outbound message was sent.
   await db
     .update(conversations)
     .set({ lastAgentMessageAt: now })
     .where(eq(conversations.id, conversationId));
 }
 
+/*
+|--------------------------------------------------------------------------
+| Inbound reply handler
+|--------------------------------------------------------------------------
+*/
+
 /* Checks a batch of raw Gmail message objects to see if any are replies
  * from a known lead to one of our outbound emails.
  *
  * For each email in the batch:
  *   1. Extracts the From address and In-Reply-To / References headers.
- *   2. Looks up a lead in the database whose email matches the From address
- *      and belongs to this agent (userId).
- *   3. Tries to find an existing email conversation via In-Reply-To or the
- *      Gmail thread ID (externalThreadId).
- *   4. If a matching conversation is found and is active, saves the inbound
- *      message, generates an AI reply, and sends it back to the lead.
- *   5. Skips the email silently if no matching lead or conversation is found,
- *      or if the conversation is not active.
+ *   2. Looks up a lead in the database whose email matches the From address.
+ *   3. Tries to find an existing email conversation via In-Reply-To or threadId.
+ *   4. If a matching active conversation is found, saves the inbound message,
+ *      generates an AI reply, and sends it back as a proper threaded reply.
+ *   5. Skips silently if no matching lead/conversation is found or conversation
+ *      is not active.
  *
  * Parameters:
  *   rawEmails:         object[] — raw Gmail message objects (format=full)
- *   agentUserId:       number   — the agent's user ID (used to scope lead lookup)
- *   agentEmail:        string   — the agent's email address (used as sender)
+ *   agentUserId:       number   — the agent's user ID
+ *   agentEmail:        string   — the agent's email address
  *   oauthRefreshToken: string   — the agent's Gmail OAuth refresh token
  */
 export async function checkForLeadAndReply(rawEmails, agentUserId, agentEmail, oauthRefreshToken) {
@@ -288,19 +316,21 @@ export async function checkForLeadAndReply(rawEmails, agentUserId, agentEmail, o
 
       const fromHeader = getHeader('From');
       const inReplyTo = getHeader('In-Reply-To');
+      const references = getHeader('References');
       const subject = getHeader('Subject');
+      const messageIdHeader = getHeader('Message-ID');
       const gmailThreadId = rawEmail.threadId ?? null;
       const gmailMessageId = rawEmail.id ?? null;
 
       if (!fromHeader) continue;
 
-      // Extract the bare email address from the From header (e.g. "John Doe <john@example.com>")
+      // Extract the bare email address from the From header
       const fromAddressMatch = fromHeader.match(/<([^>]+)>/) ?? fromHeader.match(/([^\s]+@[^\s]+)/);
       const fromAddress = fromAddressMatch?.[1]?.toLowerCase() ?? null;
 
       if (!fromAddress) continue;
 
-      // Skip emails that came from the agent themselves (e.g. sent-mail notifications)
+      // Skip emails sent by the agent themselves
       if (fromAddress === agentEmail.toLowerCase()) continue;
 
       // Look up a lead for this agent whose email matches the sender
@@ -317,10 +347,7 @@ export async function checkForLeadAndReply(rawEmails, agentUserId, agentEmail, o
 
       const lead = leadResults[0] ?? null;
 
-      if (!lead) {
-        // Not a known lead — skip (will be handled as a new lead or ignored)
-        continue;
-      }
+      if (!lead) continue;
 
       // Try to find the conversation this email is replying to.
       // Use In-Reply-To first, then fall back to the Gmail thread ID.
@@ -330,12 +357,9 @@ export async function checkForLeadAndReply(rawEmails, agentUserId, agentEmail, o
         gmailThreadId,
       );
 
-      // Skip if no matching conversation found, or if it is not active.
-      if (!conversation || conversation.status !== 'active') {
-        continue;
-      }
+      if (!conversation || conversation.status !== 'active') continue;
 
-      // Check if we've already saved this Gmail message (idempotency guard)
+      // Idempotency guard — skip if we already saved this Gmail message
       const alreadySaved = await db
         .select({ id: emailTable.id })
         .from(emailTable)
@@ -358,19 +382,27 @@ export async function checkForLeadAndReply(rawEmails, agentUserId, agentEmail, o
         [],
         subject,
         body,
-        gmailMessageId,
+        // Store the RFC 2822 Message-ID so we can match future In-Reply-To headers
+        messageIdHeader ?? gmailMessageId,
         new Date(),
       );
 
-      // Load context needed for AI reply generation
+      // Load context for AI reply generation
       const [history, notes, propertyDescription] = await Promise.all([
         loadEmailHistory(conversation.id),
         loadLeadNotes(lead.id),
         loadPropertyDescription(lead.id),
       ]);
 
-      // Generate and send the AI reply
-      const { subject: replySubject, body: replyBody, readyToBook } = await generateEmailReply(
+      // Generate the AI reply
+      const {
+        subject: replySubject,
+        body: replyBody,
+        addNote,
+        addTask,
+        readyToBook,
+        updateConversationState,
+      } = await generateEmailReply(
         lead,
         conversation,
         subject,
@@ -380,6 +412,14 @@ export async function checkForLeadAndReply(rawEmails, agentUserId, agentEmail, o
         notes,
       );
 
+      // Find the most recent outbound message's externalMessageId and threadId
+      // so we can send the reply into the correct Gmail thread.
+      const lastOutbound = [...history]
+        .reverse()
+        .find((m) => m.direction === 'outbound' && m.externalMessageId);
+
+      const replyToMessageId = messageIdHeader ?? inReplyTo ?? lastOutbound?.externalMessageId ?? null;
+
       await sendAndSaveEmail(
         oauthRefreshToken,
         agentEmail,
@@ -387,9 +427,36 @@ export async function checkForLeadAndReply(rawEmails, agentUserId, agentEmail, o
         replySubject,
         replyBody,
         conversation.id,
+        replyToMessageId,
+        gmailThreadId,
       );
 
-      // If the lead is ready to book, update their status and create an agent task.
+      // Persist addNote if the AI returned one
+      if (addNote) {
+        await db.insert(leadNotes).values({
+          leadId: lead.id,
+          note: addNote,
+        });
+      }
+
+      // Persist addTask if the AI returned one
+      if (addTask) {
+        await db.insert(leadTasks).values({
+          leadId: lead.id,
+          title: addTask.title,
+          dueDate: addTask.dueDate ? new Date(addTask.dueDate) : null,
+        });
+      }
+
+      // Persist conversation state update if the AI returned one
+      if (updateConversationState !== undefined) {
+        await db
+          .update(conversations)
+          .set({ conversationState: updateConversationState })
+          .where(eq(conversations.id, conversation.id));
+      }
+
+      // If the lead is ready to book, update their status and create an agent task
       if (readyToBook && lead.status !== 'ready') {
         await db
           .update(leads)
@@ -410,35 +477,4 @@ export async function checkForLeadAndReply(rawEmails, agentUserId, agentEmail, o
       console.error('Error handling potential lead reply:', err);
     }
   }
-}
-
-function extractPlainText(payload) {
-  // Direct body
-  if (payload.body?.data) {
-    return Buffer.from(payload.body.data, 'base64').toString('utf8');
-  }
-
-  // Search parts for text/plain
-  if (payload.parts) {
-    for (const part of payload.parts) {
-      if (part.mimeType === 'text/plain' && part.body?.data) {
-        return Buffer.from(part.body.data, 'base64').toString('utf8');
-      }
-      // Recurse into nested parts
-      if (part.parts) {
-        const nested = extractPlainText(part);
-        if (nested) return nested;
-      }
-    }
-
-    // Fallback: strip HTML if no plain text found
-    for (const part of payload.parts) {
-      if (part.mimeType === 'text/html' && part.body?.data) {
-        const html = Buffer.from(part.body.data, 'base64').toString('utf8');
-        return html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
-      }
-    }
-  }
-
-  return null;
 }

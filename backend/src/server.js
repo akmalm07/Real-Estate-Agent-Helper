@@ -2,7 +2,6 @@ import 'dotenv/config';
 
 import express from 'express';
 import cors from 'cors';
-import path from 'path'
 import cookieParser from 'cookie-parser';
 
 import googleAuthRouter from './google-auth.js';
@@ -17,37 +16,35 @@ import scheduledUnreplyRouter from './scheduled-unreply-handler.js'
 import smsWebhookRouter from './sms-webhook.js';
 import emailDraftWebhookRouter from './email-webhook.js';
 
+import frontendComRouter from './frontend-communicator.js'
 
 const app = express();
 
 app.use(cookieParser());
-app.use(cors());
+app.use(cors({
+  origin: process.env.FRONTEND_URL,
+  credentials: true,
+}));
 app.use(express.json());
 
-/*
-const frontendPath = path.resolve('../frontend/dist');
+// Auth routes — mounted at /auth/google so the frontend link
+// ${BACKEND_URL}auth/google/signup resolves correctly.
+app.use('/auth/google', googleAuthRouter);
+// app.use('/auth/microsoft', microsoftAuthRouter);
 
-app.use(express.static(frontendPath));
-
-app.get('*', (req, res) => {
-  res.sendFile(
-    path.join(frontendPath, 'index.html')
-  );
-});
-*/
-
-app.use('/google', googleAuthRouter);
-// app.use('/microsoft', microsoftAuthRouter);
 app.use('/webhook', pubsubEmailWebhook);
 app.use('/webhook', smsWebhookRouter);
 app.use('/webhook', emailDraftWebhookRouter);
 app.use('/webhook', outlookEmailWebhook);
+
 app.use('/schaduler', schaduledGmailWatchRouter);
 app.use('/schaduler', scheduledUnreplyRouter);
 
-const PORT = process.env.PORT || 3000;
+app.use('/api', frontendComRouter);
 
-console.log(PORT);
+const PORT = process.env.PORT || 8080;
+
+console.log(`Starting server on port ${PORT}`);
 
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);

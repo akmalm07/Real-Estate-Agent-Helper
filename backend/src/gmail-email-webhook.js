@@ -2,17 +2,19 @@ import { Router } from 'express';
 import { OAuth2Client } from 'google-auth-library';
 import { eq } from 'drizzle-orm';
 import { db } from '../db/index.js';
-import { users, oauthAccounts, leads } from '../db/schema.js';
+import { users, oauthAccounts, leads, leadNotes } from '../db/schema.js';
 import { checkForLeadAndReply } from './email-helpers.js';
 import {
   checkEmails,
   checkDuplicates,
   sendInitialMessages,
 } from './email-webhook-helpers.js';
+import { isExpiredTokenError } from './gmail.js';
+import { buildReconsentUrl } from './google-auth.js';
 
 const googleOAuthClient = new OAuth2Client();
 
-const pubsubEmailWebhook =  Router();
+const pubsubEmailWebhook = Router();
 
 const pubSubAudience = process.env.PUB_SUB_AUDIENCE;
 
@@ -23,7 +25,6 @@ const pubSubAudience = process.env.PUB_SUB_AUDIENCE;
 */
 
 async function verifyPubSubToken(token) {
-
   const ticket = await googleOAuthClient.verifyIdToken({
     idToken: token,
     audience: pubSubAudience,
@@ -94,7 +95,7 @@ async function readNewEmails(oauth, newHistoryId) {
     emails.push(await messageResponse.json());
   }
 
-  // Save the new history id
+  // Save the new history ID so the next webhook call starts from here
   await db
     .update(oauthAccounts)
     .set({ lastHistoryId: newHistoryId })
@@ -133,11 +134,12 @@ async function readNewEmails(oauth, newHistoryId) {
  * Side Effects:
  *   - Updates lastHistoryId on the oauth_accounts record
  *   - Inserts new lead records into the leads table
+ *   - Inserts a leadNote for referral leads recording who referred them
  *   - Creates conversation records and sends initial SMS or email outreach
- *   - Saves inbound lead reply emails and sends AI-generated responses
+ *   - Saves inbound lead reply emails and sends AI-generated threaded replies
  */
 pubsubEmailWebhook.post('/gmail', async (req, res) => {
-  
+
   // Authentication layer
   try {
     const auth = req.headers.authorization;
@@ -172,12 +174,28 @@ pubsubEmailWebhook.post('/gmail', async (req, res) => {
       return res.sendStatus(200); // Ignore unrecognized email
     }
 
-    const rawEmails = await readNewEmails(oauthAcc.oauth_accounts, pubSubMsgDecoded.historyId);
+    let rawEmails;
+    try {
+      rawEmails = await readNewEmails(oauthAcc.oauth_accounts, pubSubMsgDecoded.historyId);
+    } catch (err) {
+      if (isExpiredTokenError(err)) {
+        // The stored refresh token is expired or revoked. We cannot redirect
+        // from a Pub/Sub webhook, so log a clear message with the re-consent
+        // URL and return 200 to prevent Pub/Sub from retrying indefinitely.
+        console.error(
+          `Refresh token expired for ${pubSubMsgDecoded.emailAddress}. ` +
+          `User must re-authorize at: ${buildReconsentUrl()}`
+        );
+        return res.sendStatus(200);
+      }
+      throw err;
+    }
+
     if (rawEmails.length === 0) return res.sendStatus(200);
 
     // Run both pipelines concurrently:
     //   1. New lead detection + initial outreach
-    //   2. Lead reply detection + AI response
+    //   2. Lead reply detection + AI threaded response
     const [parsedLeads] = await Promise.all([
       checkEmails(rawEmails),
       checkForLeadAndReply(
@@ -202,10 +220,26 @@ pubsubEmailWebhook.post('/gmail', async (req, res) => {
               email: parsedLead.email ?? null,
               phone: parsedLead.phone ?? null,
               source: parsedLead.source,
-              sourceId: parsedLead.zillowId ?? parsedLead.realtorId ?? 'unknown',
+              // sourceId: use the platform-specific ID if available, otherwise null.
+              // 'unknown' is not a valid sourceId — null is the correct sentinel.
+              sourceId: parsedLead.zillowId ?? parsedLead.realtorId ?? null,
             }))
           )
           .returning();
+
+        // For referral leads, insert a note recording who referred them (if known).
+        // This surfaces in the lead detail view and is used by the AI for context.
+        for (let i = 0; i < insertedLeads.length; i++) {
+          const insertedLead = insertedLeads[i];
+          const parsedLead = newLeads[i].parsedLead;
+
+          if (parsedLead.source === 'referral' && parsedLead.referredBy) {
+            await db.insert(leadNotes).values({
+              leadId: insertedLead.id,
+              note: `Referred by: ${parsedLead.referredBy}`,
+            });
+          }
+        }
 
         await sendInitialMessages(
           insertedLeads,

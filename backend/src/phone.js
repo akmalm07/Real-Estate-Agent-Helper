@@ -1,6 +1,6 @@
 import twilio from 'twilio';
 
-const twilioClient = twilio(
+export const twilioClient = twilio(
   process.env.TWILIO_ACCOUNT_SID,
   process.env.TWILIO_API_KEY_SID,     
   process.env.TWILIO_API_KEY_SECRET, 
@@ -31,3 +31,37 @@ export async function sendSMS(to, body) {
 }
 
 
+export async function sendEmail(email, subject, html, text = '') {
+  const response = await fetch(
+  'https://comms.twilio.com/v1/Emails',
+  {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization:
+        'Basic ' +
+        Buffer.from(
+          `${process.env.TWILIO_ACCOUNT_SID}:${process.env.TWILIO_AUTH_TOKEN}`
+        ).toString('base64'),
+    },
+    body: JSON.stringify({
+      from: {
+        address: process.env.TWILIO_FROM_EMAIL,
+        name: 'CRM Bot',
+      },
+      to: [
+        {
+          address: email,
+        },
+      ],
+      content: {
+        subject: subject,
+        html: html,
+        text: text,
+      },
+    }),
+  }
+);
+
+console.log(await response.json());
+}

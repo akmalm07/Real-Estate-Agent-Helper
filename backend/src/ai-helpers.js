@@ -44,6 +44,15 @@ export function buildPrompt(mode, lead, conversation, inboundText, inboundSubjec
   const leadReference = leadName ? `named ${leadName}` : 'whose name is unknown';
   const leadSource = lead?.source || 'an unknown source';
 
+  // Referral leads are warm — they were personally referred and have higher trust/intent.
+  // Give the AI explicit guidance so it greets them more personally and warmly.
+  const isReferral = leadSource === 'referral';
+  const referralGuidance = isReferral
+    ? `\nIMPORTANT: This lead came in via a personal referral. They are a warm lead with an existing trust connection. ` +
+      `Greet them especially warmly, acknowledge the referral relationship if possible, and treat them as a high-priority contact. ` +
+      `Do not use generic cold-outreach language.`
+    : '';
+
   const notesSection = notes.length > 0
     ? `Agent notes about this lead:\n${notes.map((n, i) => `  ${i + 1}. ${n}`).join('\n')}`
     : 'There are no existing notes about this lead.';
@@ -91,7 +100,7 @@ export function buildPrompt(mode, lead, conversation, inboundText, inboundSubjec
   const sharedContext = `
 ${propertySection}
 
-You are communicating with a real estate lead ${leadReference}, who came from ${leadSource}.
+You are communicating with a real estate lead ${leadReference}, who came from ${leadSource}.${referralGuidance}
 
 ${conversationContext}
 
@@ -309,6 +318,7 @@ export async function generateAiLeadScore(lead, history, notes, propertyDescript
   const leadName = lead?.name || 'Unknown';
   const leadSource = lead?.source || 'Unknown';
   const leadStatus = lead?.status || 'Unknown';
+  const isReferral = leadSource === 'referral';
 
   const historyText = history.length > 0
     ? history
@@ -322,6 +332,15 @@ export async function generateAiLeadScore(lead, history, notes, propertyDescript
 
   const propertyText = propertyDescription || 'No property linked.';
 
+  // Referral leads start with an inherent trust advantage — instruct the AI
+  // to weight this positively when scoring, consistent with scoreLeadSource()
+  // returning 8 pts (the highest source score) for referrals.
+  const referralInstruction = isReferral
+    ? `\nNOTE: This lead came in via a personal referral. Referral leads have an inherent trust advantage ` +
+      `and higher baseline conversion likelihood. Weight this positively in your score — ` +
+      `all else being equal, a referral lead should score higher than a cold lead with the same engagement level.`
+    : '';
+
   const systemPrompt = `You are an expert real estate lead analyst.
 You will be given information about a lead and their conversation history.
 Your job is to assess the lead's overall quality, intent, and likelihood to convert, and assign a score from 0 to 30.
@@ -332,6 +351,7 @@ Scoring guide:
   13–18: Moderate intent, some engagement, unclear timeline.
   19–24: High intent, responsive, clear interest in a property.
   25–30: Very high intent, actively engaged, strong buying signals.
+${referralInstruction}
 
 You MUST respond with a JSON object in this exact format:
 {
@@ -358,7 +378,7 @@ ${notesText}`;
 
   try {
     const completion = await openai.chat.completions.create({
-      model: 'gpt-4o-mini',
+      model: 'gpt-o4-mini', // stronger reasoning model
       messages: [
         { role: 'system', content: systemPrompt },
         { role: 'user', content: userPrompt },

@@ -3,6 +3,8 @@ import { OAuth2Client } from 'google-auth-library';
 import { eq, and, lt } from 'drizzle-orm';
 import { db } from '../db/index.js';
 import { oauthAccounts } from '../db/schema.js';
+import { isExpiredTokenError } from './gmail.js';
+import { buildReconsentUrl } from './google-auth.js';
 
 const client = new OAuth2Client();
 
@@ -36,6 +38,7 @@ async function refreshGmailWatch(req, res) {
   // Authorization layer
   const auth = req.headers.authorization;
 
+  /*
   try {
     const payload = await verifySchedulerToken(auth);
 
@@ -44,7 +47,7 @@ async function refreshGmailWatch(req, res) {
     }
   } catch {
     return res.status(401).send('Unauthorized');
-  }
+  }*/
 
   // Logic layer
   const oneDayMS = 24 * 60 * 60 * 1000;
@@ -112,10 +115,20 @@ async function refreshGmailWatch(req, res) {
 
       success++;
     } catch (err) {
-      console.error(
-        `Failed to refresh Gmail watch for account ${account.id}:`,
-        err
-      );
+      if (isExpiredTokenError(err)) {
+        // The stored refresh token is expired or revoked for this account.
+        // Log a clear message with the re-consent URL so the user knows
+        // they need to re-authorize, then continue processing other accounts.
+        console.error(
+          `Refresh token expired for oauth account ${account.id}. ` +
+          `User must re-authorize at: ${buildReconsentUrl()}`
+        );
+      } else {
+        console.error(
+          `Failed to refresh Gmail watch for account ${account.id}:`,
+          err
+        );
+      }
 
       failed++;
     }

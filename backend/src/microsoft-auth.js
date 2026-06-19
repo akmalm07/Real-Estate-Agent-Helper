@@ -5,6 +5,7 @@ import { users, oauthAccounts } from '../db/schema.js';
 import { createToken, verifyToken } from './jwt.js';
 import { msalClient } from './outlook.js';
 import { ConfidentialClientApplication } from '@azure/msal-node';
+import { cookieJson } from './consts.js';
 
 const microsoftAuthRouter = Router();
 
@@ -188,11 +189,7 @@ microsoftAuthRouter.get('/auth', async (req, res) => {
 
     const token = createToken(userId);
 
-    res.cookie('token', token, {
-      httpOnly: true,
-      secure: false, // TODO: change to true in production with HTTPS
-      sameSite: 'lax',
-    });
+    res.cookie('token', token, cookieJson);
 
     return res.redirect(`/onboard?firstTime=${userFirstTime}`);
 
@@ -227,7 +224,7 @@ microsoftAuthRouter.get('/status', (req, res) => {
 
 microsoftAuthRouter.get('/logout', (req, res) => {
   try {
-    res.clearCookie('token');
+    res.clearCookie('token', cookieJson);
     res.send('Logged out successfully.');
   } catch (err) {
     res.status(500).send('Logout failed.');
