@@ -167,7 +167,7 @@ export const userOnboarding = pgTable('user_onboarding', {
 
   // ── Step 2: Lead Sources ─────────────────────────────────────────────────
   // Array of selected sources, e.g. ["zillow", "facebook_ads", "referrals"]
-  leadSources: jsonb('lead_sources').notNull().default(sql`'[]'::jsonb`),
+  leadSources: jsonb('lead_sources').notNull().default(sql`'[]'::jsonb`), // TODO
   // Free-text "Other" source (max 50 chars enforced in application layer)
   leadSourceOther: text('lead_source_other'),
 

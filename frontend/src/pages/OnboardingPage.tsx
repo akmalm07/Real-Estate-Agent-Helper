@@ -364,9 +364,9 @@ export function OnboardingPage() {
   // ── Step 2: Lead Sources ──────────────────────────────────────────────────
   const LEAD_SOURCE_OPTIONS = [
     { value: 'zillow', label: 'Zillow' },
-    { value: 'realtor_com', label: 'Realtor.com' },
-    { value: 'facebook_ads', label: 'Facebook Ads' },
-    { value: 'google_ads', label: 'Google Ads' },
+    { value: 'realtor', label: 'Realtor.com' },
+    // { value: 'facebook_ads', label: 'Facebook Ads' },
+    // { value: 'google_ads', label: 'Google Ads' },
     { value: 'website_forms', label: 'Website Forms' },
     { value: 'referrals', label: 'Referrals' },
   ]
