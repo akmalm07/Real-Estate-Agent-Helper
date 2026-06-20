@@ -36,7 +36,7 @@ mock.module('../src/outlook.js', {
   },
 });
 
-mock.module('../src/email-webhook-helpers.js', {
+mock.module('../src/pubsub-webhook-helpers.js', {
   namedExports: {
     checkEmails: async () => [],
     checkDuplicates: async () => [],

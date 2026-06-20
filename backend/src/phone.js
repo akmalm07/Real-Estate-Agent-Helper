@@ -1,4 +1,8 @@
+import 'dotenv/config'
+
 import twilio from 'twilio';
+import Telnyx from 'telnyx';
+
 
 export const twilioClient = twilio(
   process.env.TWILIO_ACCOUNT_SID,
@@ -6,30 +10,33 @@ export const twilioClient = twilio(
   process.env.TWILIO_API_KEY_SECRET, 
 );
 
-const FROM_NUMBER = process.env.TWILIO_PHONE_NUMBER;
 
-/* Sends an SMS message to a lead's phone number using Twilio.
- *
- * Parameters:
- *   to:   string — recipient phone number in E.164 format (e.g. +15551234567)
- *   body: string — the text message content
- *
- * Returns:
- *   The Twilio message object containing sid, status, etc.
- *
- * Side Effects:
- *   - Sends an SMS via the Twilio API.
- */
+export const telnyx = new Telnyx({ apiKey: process.env.TELNYX_API_KEY });
+
 export async function sendSMS(to, body) {
-  const message = await twilioClient.messages.create({
-    from: FROM_NUMBER,
-    to,
-    body,
-  });
+  try {
+    const response = await telnyx.messages.send({
+      from: process.env.TELNYX_PHONE_NUMBER,
+      to,
+      text: body,
+    });
 
-  return message;
+    return {
+      success: true,
+      provider: 'telnyx',
+      messageId: response.data.id,
+      raw: response,
+    };
+  } catch (error) {
+    console.error('Telnyx SMS failed:', error);
+
+    return {
+      success: false,
+      provider: 'telnyx',
+      error: error.message,
+    };
+  }
 }
-
 
 export async function sendEmail(email, subject, html, text = '') {
   const response = await fetch(

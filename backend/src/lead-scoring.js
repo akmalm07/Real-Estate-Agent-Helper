@@ -116,6 +116,7 @@ export function scoreLeadSource(lead) {
   if (source === 'referral') return 8;
   if (source === 'zillow') return 7;
   if (source === 'realtor') return 6;
+  if (source === 'email') return 5;
   if (source !== '') return 3; // Unknown but present source
   return 1;                    // No source recorded
 }

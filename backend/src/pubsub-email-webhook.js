@@ -2,13 +2,13 @@ import { Router } from 'express';
 import { OAuth2Client } from 'google-auth-library';
 import { eq } from 'drizzle-orm';
 import { db } from '../db/index.js';
-import { users, oauthAccounts, leads, leadNotes } from '../db/schema.js';
+import { users, oauthAccounts, leads, leadNotes, userOnboarding } from '../db/schema.js';
 import { checkForLeadAndReply } from './email-helpers.js';
 import {
   checkEmails,
   checkDuplicates,
   sendInitialMessages,
-} from './email-webhook-helpers.js';
+} from './pubsub-webhook-helpers.js';
 import { isExpiredTokenError } from './gmail.js';
 import { buildReconsentUrl } from './google-auth.js';
 
@@ -139,7 +139,6 @@ async function readNewEmails(oauth, newHistoryId) {
  *   - Saves inbound lead reply emails and sends AI-generated threaded replies
  */
 pubsubEmailWebhook.post('/gmail', async (req, res) => {
-
   // Authentication layer
   try {
     const auth = req.headers.authorization;
@@ -220,6 +219,7 @@ pubsubEmailWebhook.post('/gmail', async (req, res) => {
               email: parsedLead.email ?? null,
               phone: parsedLead.phone ?? null,
               source: parsedLead.source,
+              status: parsedLead.askClient ? 'unverified' : 'active',
               // sourceId: use the platform-specific ID if available, otherwise null.
               // 'unknown' is not a valid sourceId — null is the correct sentinel.
               sourceId: parsedLead.zillowId ?? parsedLead.realtorId ?? null,
@@ -227,10 +227,14 @@ pubsubEmailWebhook.post('/gmail', async (req, res) => {
           )
           .returning();
 
+        const verifiedLeads = insertedLeads.filter(
+          (lead) => lead.status === 'active'
+        );
+
         // For referral leads, insert a note recording who referred them (if known).
         // This surfaces in the lead detail view and is used by the AI for context.
-        for (let i = 0; i < insertedLeads.length; i++) {
-          const insertedLead = insertedLeads[i];
+        for (let i = 0; i < verifiedLeads.length; i++) {
+          const insertedLead = verifiedLeads[i];
           const parsedLead = newLeads[i].parsedLead;
 
           if (parsedLead.source === 'referral' && parsedLead.referredBy) {
@@ -242,14 +246,16 @@ pubsubEmailWebhook.post('/gmail', async (req, res) => {
         }
 
         await sendInitialMessages(
-          insertedLeads,
+          verifiedLeads,
           oauthAcc.users.email,
           oauthAcc.oauth_accounts.refreshToken,
         );
 
-        console.log('Leads accepted:', insertedLeads);
+        console.log('Leads accepted:', verifiedLeads);
       }
     }
+
+    
 
     res.sendStatus(200);
   } catch (err) {

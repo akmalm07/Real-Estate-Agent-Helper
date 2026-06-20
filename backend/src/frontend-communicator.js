@@ -35,6 +35,8 @@ import {
   sendAndSaveEmail,
   generateEmailReply,
 } from './email-helpers.js';
+import { sendInitialMessages } from './pubsub-webhook-helpers.js'
+
 
 const frontendComRouter = Router();
 
@@ -77,32 +79,27 @@ function resolveSinceCutoff(sinceParam) {
 /**
  * Resolves which channel to use for initial outreach based on the agent's
  * onboarding contactMethod preference and what contact info the lead has.
- *
- * Returns: 'sms' | 'email' | 'phone' | null
- *   - 'sms'   → send via Twilio SMS
- *   - 'email' → send via Gmail
- *   - 'phone' → agent prefers phone calls; create task, no automated message
- *   - null    → no contact info available
  */
 function resolveOutreachChannel(contactMethod, lead) {
-  const hasPhone = !!lead.phone?.trim();
-  const hasEmail = !!lead.email?.trim();
+  const hasPhone = (lead.phone ?? '').trim().length > 0;
+  const hasEmail = (lead.email ?? '').trim().length > 0;
+
+  const fallback = () => {
+    if (hasPhone) return 'sms';
+    if (hasEmail) return 'email';
+    return null;
+  };
 
   switch (contactMethod) {
-    case 'sms':
-      return hasPhone ? 'sms' : null;
-
-    case 'email':
-      return hasEmail ? 'email' : null;
-
-    case 'phone':
-      return 'phone';
-
+    case 'sms':   return hasPhone ? 'sms'   : fallback();
+    case 'email': return hasEmail ? 'email' : fallback();
+    case 'phone': return hasPhone ? 'phone' : fallback();
     case 'mix':
-    default:
       if (hasPhone) return 'sms';
       if (hasEmail) return 'email';
       return null;
+    default:
+      return fallback();
   }
 }
 
@@ -362,7 +359,8 @@ frontendComRouter.get('/dashboard', requireAuth, async (req, res) => {
     const visibleLeads   = allLeadsRaw.filter((l) => l.status !== 'pending_deletion');
     const visibleLeadIds = visibleLeads.map((l) => l.id);
 
-    const STATUS_LIST = ['new', 'active', 'cold', 'converted'];
+    // Include 'unverified' in the status breakdown
+    const STATUS_LIST = ['unverified', 'new', 'active', 'cold', 'converted'];
     const leadsByStatus = STATUS_LIST.map((status) => ({
       status,
       count: visibleLeads.filter((l) => l.status === status).length,
@@ -569,26 +567,24 @@ frontendComRouter.post('/leads', requireAuth, async (req, res) => {
 });
 
 // ---------------------------------------------------------------------------
-// Leads — POST /api/leads/:id/send-initial
+// Leads — POST /api/leads/verify/:id
 //
-// Handles all three outreach modes:
-//   mode = 'ai'     → AI generates and sends message immediately
-//   mode = 'custom' → Agent's message sent as-is
-//   mode = 'none'   → No message sent; conversation created; task created if phone preferred
+// Handles verification of unverified leads (created by email ingestion pipeline).
+//   verify: true  → set status to 'active'; caller then hits /send-initial
+//   verify: false → permanently hard-delete the lead and all associated data
 //
-// Channel is resolved from the agent's onboarding contactMethod preference.
-// Lead preservation is the highest priority — messaging failures are non-fatal.
+// Only leads with status 'unverified' can be acted on here.
 // ---------------------------------------------------------------------------
-frontendComRouter.post('/leads/:id/send-initial', requireAuth, async (req, res) => {
+frontendComRouter.post('/leads/verify/:id', requireAuth, async (req, res) => {
   try {
     const leadId = Number(req.params.id);
-    const {
-      mode = 'ai',          // 'ai' | 'custom' | 'none'
-      customMessage,        // string | null — required when mode = 'custom'
-      customSubject,        // string | null — required when mode = 'custom' + email channel
-    } = req.body ?? {};
+    const { verify } = req.body ?? {};
 
-    // ── Load lead ─────────────────────────────────────────────────────────
+    if (typeof verify !== 'boolean') {
+      return res.status(400).json({ error: '`verify` must be a boolean.' });
+    }
+
+    // Load and ownership-check the lead
     const [lead] = await db
       .select()
       .from(leads)
@@ -597,7 +593,70 @@ frontendComRouter.post('/leads/:id/send-initial', requireAuth, async (req, res) 
 
     if (!lead) return res.status(404).json({ error: 'Lead not found.' });
 
-    // ── Load agent context ────────────────────────────────────────────────
+    if (lead.status !== 'unverified') {
+      return res.status(400).json({ error: 'Only unverified leads can be acted on via this endpoint.' });
+    }
+
+    if (verify === false) {
+      // ── Permanent hard-delete ─────────────────────────────────────────────
+      // Delete child records first to avoid FK constraint violations
+      await db.delete(leadNotes).where(eq(leadNotes.leadId, leadId));
+      await db.delete(leadTasks).where(eq(leadTasks.leadId, leadId));
+
+      // Delete messages in all conversations for this lead
+      const leadConversations = await db
+        .select({ id: conversations.id, type: conversations.type })
+        .from(conversations)
+        .where(eq(conversations.leadId, leadId));
+
+      for (const conv of leadConversations) {
+        if (conv.type === 'sms') {
+          await db.delete(smsTable).where(eq(smsTable.conversationId, conv.id));
+        } else if (conv.type === 'email') {
+          await db.delete(emailTable).where(eq(emailTable.conversationId, conv.id));
+        }
+      }
+
+      await db.delete(conversations).where(eq(conversations.leadId, leadId));
+      await db.delete(leads).where(eq(leads.id, leadId));
+
+      return res.json({ deleted: true, leadId });
+    }
+
+    // ── verify === true: activate the lead ───────────────────────────────
+    const [updated] = await db
+      .update(leads)
+      .set({ status: 'active', updatedAt: new Date() })
+      .where(eq(leads.id, leadId))
+      .returning();
+
+    return res.json({ verified: true, lead: updated });
+  } catch (err) {
+    console.error('POST /api/leads/verify/:id error:', err);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Leads — POST /api/leads/:id/send-initial
+// ---------------------------------------------------------------------------
+frontendComRouter.post('/leads/:id/send-initial', requireAuth, async (req, res) => {
+  try {
+    const leadId = Number(req.params.id);
+    const {
+      mode = 'ai',
+      customMessage,
+      customSubject,
+    } = req.body ?? {};
+
+    const [lead] = await db
+      .select()
+      .from(leads)
+      .where(and(eq(leads.id, leadId), eq(leads.userId, req.user.id)))
+      .limit(1);
+
+    if (!lead) return res.status(404).json({ error: 'Lead not found.' });
+
     const [agentUser] = await db
       .select()
       .from(users)
@@ -616,154 +675,43 @@ frontendComRouter.post('/leads/:id/send-initial', requireAuth, async (req, res) 
       .where(and(eq(oauthAccounts.userId, req.user.id), eq(oauthAccounts.provider, 'google')))
       .limit(1);
 
-    // contactMethod defaults to 'mix' if onboarding not completed
     const contactMethod = onboarding?.contactMethod ?? 'mix';
     const channel = resolveOutreachChannel(contactMethod, lead);
 
-    // ── Mode: none — create conversation/task only, no message ───────────
-    if (mode === 'none') {
-      // Still create a conversation record so the agent can message later
-      if (lead.phone || lead.email) {
-        const convType = lead.phone ? 'sms' : 'email';
-        if (convType === 'sms') {
-          await findOrCreateSmsConversation(lead.id, lead.phone, process.env.TWILIO_PHONE_NUMBER);
-        } else {
-          await findOrCreateEmailConversation(lead.id, agentUser.email, [lead.email], null, null, null);
-        }
-      }
-      return res.json({ channel: null, mode: 'none', message: null });
-    }
-
-    // ── Phone preference — create task, no automated message ─────────────
-    if (channel === 'phone') {
-      // Create a phone call follow-up task
-      await db.insert(leadTasks).values({
-        leadId: lead.id,
-        title:  `📞 Call ${lead.name ?? 'lead'} — manual phone outreach required`,
-        dueDate: null,
-      });
-
-      return res.json({
-        channel: 'phone',
-        mode:    'task_created',
-        message: null,
-        warning: 'Your contact preference is set to phone calls. A follow-up task has been created.',
-      });
-    }
-
-    // ── No contact info available ─────────────────────────────────────────
-    if (!channel) {
-      return res.json({
-        channel: null,
-        mode:    'no_contact',
-        message: null,
-        warning: 'Lead has no phone or email matching your contact preference. Add contact info to send a message.',
-      });
-    }
-
-    // ── SMS outreach ──────────────────────────────────────────────────────
-    if (channel === 'sms') {
-      const agentPhone = process.env.TWILIO_PHONE_NUMBER;
-      const conversation = await findOrCreateSmsConversation(lead.id, lead.phone, agentPhone);
-
-      let messageBody;
-
-      if (mode === 'ai') {
-        const { reply } = await generateSmsReply(lead, conversation, '', null, [], []);
-        messageBody = reply;
-      } else {
-        // mode === 'custom'
-        if (!customMessage?.trim()) {
-          return res.status(400).json({ error: 'customMessage is required when mode is "custom".' });
-        }
-        messageBody = customMessage.trim();
-      }
-
-      // Send — non-fatal if Twilio fails
-      try {
-        await sendSMS(lead.phone, messageBody);
-      } catch (smsErr) {
-        console.error(`Twilio SMS failed for lead ${lead.id}:`, smsErr);
-        // Save the message as attempted even if Twilio failed
-        await saveSmsMessage(conversation.id, 'outbound', messageBody, null);
-        return res.json({
-          channel:  'sms',
-          mode,
-          message:  messageBody,
-          warning:  'Message was saved but could not be delivered via SMS. Check your Twilio configuration.',
+    if (mode === 'ai') {
+      if (channel === 'sms') {
+        await sendInitialMessages([lead], null, null);
+      } else if (channel === 'email') {
+        await sendInitialMessages([lead], agentUser.email, oauthRow.refreshToken);
+      } else if (channel === 'phone') {
+        await db.insert(leadTasks).values({
+          leadId: lead.id,
+          title:  `📞 Call ${lead.name ?? 'lead'} — manual phone outreach required`,
+          dueDate: null,
         });
-      }
-
-      await saveSmsMessage(conversation.id, 'outbound', messageBody, null);
-
-      return res.json({ channel: 'sms', mode, message: messageBody });
-    }
-
-    // ── Email outreach ────────────────────────────────────────────────────
-    if (channel === 'email') {
-      if (!oauthRow) {
         return res.json({
-          channel: 'email',
-          mode:    'no_gmail',
+          channel: 'phone',
+          mode:    'task_created',
           message: null,
-          warning: 'No Gmail account connected. Please connect Gmail in Settings to send emails. The lead has been saved.',
+          warning: 'Your contact preference is set to phone calls. A follow-up task has been created.',
         });
-      }
-
-      const agentEmail = agentUser.email;
-      const conversation = await findOrCreateEmailConversation(
-        lead.id,
-        agentEmail,
-        [lead.email],
-        null,
-        null,
-        null,
-      );
-
-      let subject, body;
-
-      if (mode === 'ai') {
-        const result = await generateEmailReply(lead, conversation, null, '', null, [], []);
-        subject = result.subject;
-        body    = result.body;
       } else {
-        // mode === 'custom'
-        if (!customMessage?.trim()) {
-          return res.status(400).json({ error: 'customMessage is required when mode is "custom".' });
-        }
-        if (!customSubject?.trim()) {
-          return res.status(400).json({ error: 'customSubject is required when mode is "custom" and channel is email.' });
-        }
-        subject = customSubject.trim();
-        body    = customMessage.trim();
+        return res.json({ error: 'No contact method available for this lead.' });
       }
+      return res.json({ channel, mode: 'ai', message: 'Message successfully sent!' });
 
-      // Send — non-fatal if Gmail fails
-      try {
-        await sendAndSaveEmail(
-          oauthRow.refreshToken,
-          agentEmail,
-          lead.email,
-          subject,
-          body,
-          conversation.id,
-        );
-      } catch (emailErr) {
-        console.error(`Gmail send failed for lead ${lead.id}:`, emailErr);
-        return res.json({
-          channel: 'email',
-          mode,
-          subject,
-          message: body,
-          warning: 'Message was generated but could not be sent via Gmail. Check your Gmail connection in Settings.',
-        });
+    } else if (mode === 'custom') {
+      if (channel === 'sms') {
+        if (!customMessage) return res.json({ error: 'Custom message not provided' });
+        await sendInitialMessages([lead], null, null, customMessage);
+      } else if (channel === 'email') {
+        if (!customMessage || !customSubject) return res.json({ error: 'Custom message and custom subject not provided' });
+        await sendInitialMessages([lead], agentUser.email, oauthRow.refreshToken, customMessage, customSubject);
       }
-
-      return res.json({ channel: 'email', mode, subject, message: body });
+      return res.json({ channel, mode: 'custom', message: 'Message successfully sent!' });
     }
 
-    // Should never reach here
-    return res.status(500).json({ error: 'Unexpected channel resolution error.' });
+    return res.json({ mode: 'none' });
   } catch (err) {
     console.error('POST /api/leads/:id/send-initial error:', err);
     return res.status(500).json({ error: 'Internal server error' });
@@ -788,6 +736,7 @@ frontendComRouter.patch('/leads/:id', requireAuth, async (req, res) => {
     const { name, email, phone, source, sourceId, propertyId, status, aiEnabled } = req.body ?? {};
 
     const validSources  = ['zillow', 'realtor', 'referral', 'unknown'];
+    // 'unverified' is intentionally excluded — it can only be set by the ingestion pipeline
     const validStatuses = ['active', 'ready', 'archived', 'pending_deletion'];
 
     const updates = {};
@@ -797,7 +746,6 @@ frontendComRouter.patch('/leads/:id', requireAuth, async (req, res) => {
     if (phone     !== undefined) updates.phone    = phone?.trim()     || null;
     if (sourceId  !== undefined) updates.sourceId = sourceId?.trim()  || null;
 
-    // Allow toggling AI management independently of status
     if (aiEnabled !== undefined) {
       updates.aiEnabled = Boolean(aiEnabled);
     }
@@ -871,8 +819,8 @@ frontendComRouter.post('/properties', requireAuth, async (req, res) => {
     const validStatuses = ['draft', 'open', 'archived'];
     if (!validStatuses.includes(status)) return res.status(400).json({ error: `status must be one of: ${validStatuses.join(', ')}` });
 
-    const validSources   = ['zillow', 'realtor', 'referral', 'unknown'];
-    const resolvedSource = validSources.includes(source) ? source : 'unknown';
+    const validSources   = ['zillow', 'realtor', 'listing'];
+    const resolvedSource = validSources.includes(source) ? source : 'listing';
 
     if (price    !== undefined && price    !== null && price    !== '' && (isNaN(Number(price))    || Number(price)    < 0)) return res.status(400).json({ error: 'price must be a non-negative number.' });
     if (bedrooms !== undefined && bedrooms !== null && bedrooms !== '' && (isNaN(Number(bedrooms)) || Number(bedrooms) < 0 || !Number.isInteger(Number(bedrooms)))) return res.status(400).json({ error: 'bedrooms must be a non-negative integer.' });
@@ -1048,28 +996,61 @@ frontendComRouter.post('/messages', requireAuth, async (req, res) => {
     const [lead] = await db.select().from(leads).where(and(eq(leads.id, Number(leadId)), eq(leads.userId, req.user.id))).limit(1);
     if (!lead) return res.status(404).json({ error: 'Lead not found' });
 
-    let [conv] = await db.select().from(conversations).where(and(eq(conversations.leadId, Number(leadId)), eq(conversations.type, channel))).limit(1);
-    if (!conv) {
-      [conv] = await db.insert(conversations).values({
-        leadId: Number(leadId),
-        type: channel,
-        status: 'active',
-        initialSender: { name: agentUser.name, email: agentUser.email },
-        initialRecipient: [{ name: lead.name ?? 'Lead', email: lead.email ?? '', phone: lead.phone ?? '' }],
-      }).returning();
+    let [convo] = await db.select().from(conversations).where(and(eq(conversations.leadId, Number(leadId)), eq(conversations.type, channel))).limit(1);
+
+    if (convo && conv.status !== 'converted') {
+      return res.status(403).json({ error: 'Cannot send message while AI is active for this lead. Disable AI or convert the conversation first.' });
     }
 
-    let message;
     if (channel === 'sms') {
-      [message] = await db.insert(smsTable).values({ conversationId: conv.id, direction: 'outbound', body: content, sentAt: new Date() }).returning();
+
+      await sendSMS(
+        lead.phone,
+        content
+      );
+
+      [message] = await db.insert(smsTable)
+        .values({
+          conversationId: conv.id,
+          direction: 'outbound',
+          body: content,
+          sentAt: new Date(),
+        })
+        .returning();
+
     } else {
-      [message] = await db.insert(emailTable).values({
-        conversationId: conv.id, direction: 'outbound',
-        sender: { name: agentUser.name, email: agentUser.email },
-        recipient: [{ name: lead.name ?? 'Lead', email: lead.email ?? '' }],
-        cc: [], body: content, sentAt: new Date(),
-      }).returning();
+
+      const [oauthAccount] = await db
+        .select()
+        .from(oauthAccounts)
+        .where(eq(oauthAccounts.userId, req.user.id))
+        .limit(1);
+
+      const [lastEmail] = await db
+        .select()
+        .from(email)
+        .where(eq(email.conversationId, conv.id))
+        .orderBy(desc(email.createdAt))
+        .limit(1);
+
+      await sendAndSaveEmail(
+        oauthAccount.refreshToken,
+        agentUser.email,
+        lead.email,
+        req.body.subject,
+        content,
+        conv.id,
+        lastEmail?.externalMessageId ?? null,
+        convo?.externalThreadId ?? null,
+      );
+
+      message = {
+        body: content,
+        subject: req.body.subject,
+      };
     }
+
+    
 
     return res.status(201).json({ ...message, channel, leadId: Number(leadId) });
   } catch (err) {
@@ -1077,5 +1058,50 @@ frontendComRouter.post('/messages', requireAuth, async (req, res) => {
     return res.status(500).json({ error: 'Internal server error' });
   }
 });
+
+
+// ---------------------------------------------------------------------------
+// Messages — POST /api/messages/convert
+// ---------------------------------------------------------------------------
+frontendComRouter.post('/messages/convert', requireAuth, async (req, res) => {
+  try {
+    const { conversationId } = req.body ?? {};
+
+    if (!conversationId) {
+      return res.status(400).json({ error: 'conversationId is required.' });
+    }
+
+    // Verify conversation exists and belongs to the user's lead
+    const [conversation] = await db
+      .select({ c_id: conversations.id, l_id: leads.id })
+      .from(conversations)
+      .innerJoin(leads, eq(conversations.leadId, leads.id))
+      .where(and(eq(conversations.id, conversationId), eq(leads.userId, req.user.id)))
+      .limit(1);
+
+    if (!conversation) {
+      return res.status(404).json({ error: 'Conversation not found or does not belong to you.' });
+    }
+
+    // Update conversation status to 'converted'
+    await db
+      .update(conversations)
+      .set({ status: 'converted', updatedAt: new Date() })
+      .where(eq(conversations.id, conversationId));
+
+    // Also update the lead's aiEnabled to false if it's currently true
+    await db
+      .update(leads)
+      .set({ aiEnabled: false, updatedAt: new Date() })
+      .where(eq(leads.id, conversation.l_id));
+
+
+    return res.status(200).json({ success: true, conversationId });
+  } catch (err) {
+    console.error('POST /api/messages/convert error:', err);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 
 export default frontendComRouter;

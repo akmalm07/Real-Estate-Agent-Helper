@@ -10,6 +10,9 @@ import { MessagesPage } from './pages/MessagesPage'
 import { SettingsPage } from './pages/SettingsPage'
 import { OnboardingPage } from './pages/OnboardingPage'
 import { ChangePasswordPage } from './pages/ChangePasswordPage'
+import HomePage from './pages/HomePage' // New
+import TermsOfServicePage from './pages/TermsOfServicePage' // New
+import PrivacyPolicyPage from './pages/PrivacyPolicyPage' // New
 import { useAuth } from './hooks/useAuth'
 
 function App() {
@@ -54,9 +57,12 @@ function App() {
   if (!isAuthenticated) {
     return (
       <Routes>
+        <Route path="/" element={<HomePage />} /> {/* New */}
         <Route path="/login" element={<LoginPage />} />
         <Route path="/google/callback" element={<GoogleCallbackPage />} />
-        <Route path="*" element={<Navigate to="/login" replace />} />
+        <Route path="/terms" element={<TermsOfServicePage />} /> {/* New */}
+        <Route path="/privacy" element={<PrivacyPolicyPage />} /> {/* New */}
+        <Route path="*" element={<Navigate to="/" replace />} /> {/* Redirect to home */}
       </Routes>
     )
   }
@@ -73,7 +79,12 @@ function App() {
 
   return (
     <Routes>
+      <Route path="/home" element={<HomePage />} />
+      <Route path="/terms" element={<TermsOfServicePage />} /> {/* New */}
+      <Route path="/privacy" element={<PrivacyPolicyPage />} /> {/* New */}
+
       <Route path="/" element={<AppLayout />}>
+
         <Route index element={<Navigate to="/dashboard" replace />} />
         <Route path="dashboard" element={<DashboardPage />} />
         <Route path="leads" element={<LeadsPage />} />

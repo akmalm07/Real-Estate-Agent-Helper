@@ -1,6 +1,3 @@
-//import dotenv from 'dotenv'
-//dotenv.config();
-
 import OpenAI from 'openai';
 
 const openai = new OpenAI({
@@ -13,39 +10,228 @@ const openai = new OpenAI({
 |--------------------------------------------------------------------------
 |
 | Supports two modes:
-|   'sms'   — short conversational replies, returns { reply, addNote, addTask, updateConversationState, readyToBook }
-|   'email' — detailed email replies with a subject line, returns { subject, body, addNote, addTask, updateConversationState, readyToBook }
+|   'sms'   — short conversational replies
+|   'email' — detailed email replies with a subject line
 |
-| Also exports:
-|   generateAiLeadScore — scores a lead 0–30 using GPT-4o-mini behavioral analysis
+| buildPrompt returns { messages, responseFormat } where responseFormat is
+| a strict JSON schema object tailored to the mode.
+|
+| generateAiReply orchestrates the OpenAI call and parses the result.
+|
+| generateAiLeadScore scores a lead 0–30 using GPT-4o-mini behavioral analysis.
 |
 */
+
 export function isOptOut(message) {
   return message.trim().toLowerCase() === 'stop';
 }
 
-/* Builds the OpenAI messages array with full context for either SMS or email.
+// ---------------------------------------------------------------------------
+// Schema builders
+// ---------------------------------------------------------------------------
+
+/**
+ * Returns the OpenAI `response_format` object for SMS replies.
+ * Schema:
+ *   {
+ *     reply: string,
+ *     addNote: string | null,
+ *     addTask: { title: string, dueDate: string | null } | null,
+ *     updateConversationState: { awaitingAnswer: boolean, pendingQuestion?: string, reason?: string } | null,
+ *     readyToBook: boolean
+ *   }
+ */
+function buildSmsResponseFormat() {
+  return {
+    type: 'json_schema',
+    json_schema: {
+      name: 'sms_reply',
+      strict: true,
+      schema: {
+        type: 'object',
+        properties: {
+          reply: {
+            type: 'string',
+            description: 'The SMS message to send to the lead.',
+          },
+          addNote: {
+            type: ['string', 'null'],
+            description: 'A note to add to the lead record, or null if nothing important to log.',
+          },
+          addTask: {
+            oneOf: [
+              {
+                type: 'object',
+                properties: {
+                  title: {
+                    type: 'string',
+                    description: 'Short task title for the agent.',
+                  },
+                  dueDate: {
+                    type: ['string', 'null'],
+                    description: 'ISO 8601 date string, or null if no specific due date.',
+                  },
+                },
+                required: ['title', 'dueDate'],
+                additionalProperties: false,
+              },
+              { type: 'null' },
+            ],
+            description: 'A follow-up task for the agent, or null if none needed.',
+          },
+          updateConversationState: {
+            oneOf: [
+              {
+                type: 'object',
+                properties: {
+                  awaitingAnswer: {
+                    type: 'boolean',
+                    description: 'True if you asked the lead a question and are awaiting their reply.',
+                  },
+                  pendingQuestion: {
+                    type: ['string', 'null'],
+                    description: 'The question you asked, if awaitingAnswer is true.',
+                  },
+                  reason: {
+                    type: ['string', 'null'],
+                    description: 'Brief summary of why the lead is delayed or unavailable, if applicable.',
+                  },
+                },
+                required: ['awaitingAnswer', 'pendingQuestion', 'reason'],
+                additionalProperties: false,
+              },
+              { type: 'null' },
+            ],
+            description: 'Updated conversation state to persist, or null if nothing to track.',
+          },
+          readyToBook: {
+            type: 'boolean',
+            description: 'True only if the lead has clearly expressed they are ready to schedule a viewing or appointment.',
+          },
+        },
+        required: ['reply', 'addNote', 'addTask', 'updateConversationState', 'readyToBook'],
+        additionalProperties: false,
+      },
+    },
+  };
+}
+
+/**
+ * Returns the OpenAI `response_format` object for email replies.
+ * Schema:
+ *   {
+ *     subject: string,
+ *     body: string,
+ *     addNote: string | null,
+ *     addTask: { title: string, dueDate: string | null } | null,
+ *     updateConversationState: { awaitingAnswer: boolean, pendingQuestion?: string, reason?: string } | null,
+ *     readyToBook: boolean
+ *   }
+ */
+function buildEmailResponseFormat() {
+  return {
+    type: 'json_schema',
+    json_schema: {
+      name: 'email_reply',
+      strict: true,
+      schema: {
+        type: 'object',
+        properties: {
+          subject: {
+            type: 'string',
+            description: 'The email subject line. Prefix with "Re: " if replying to an existing thread.',
+          },
+          body: {
+            type: 'string',
+            description: 'The full email body to send to the lead.',
+          },
+          addNote: {
+            type: ['string', 'null'],
+            description: 'A note to add to the lead record, or null if nothing important to log.',
+          },
+          addTask: {
+            oneOf: [
+              {
+                type: 'object',
+                properties: {
+                  title: {
+                    type: 'string',
+                    description: 'Short task title for the agent.',
+                  },
+                  dueDate: {
+                    type: ['string', 'null'],
+                    description: 'ISO 8601 date string, or null if no specific due date.',
+                  },
+                },
+                required: ['title', 'dueDate'],
+                additionalProperties: false,
+              },
+              { type: 'null' },
+            ],
+            description: 'A follow-up task for the agent, or null if none needed.',
+          },
+          updateConversationState: {
+            oneOf: [
+              {
+                type: 'object',
+                properties: {
+                  awaitingAnswer: {
+                    type: 'boolean',
+                    description: 'True if you asked the lead a question and are awaiting their reply.',
+                  },
+                  pendingQuestion: {
+                    type: ['string', 'null'],
+                    description: 'The question you asked, if awaitingAnswer is true.',
+                  },
+                  reason: {
+                    type: ['string', 'null'],
+                    description: 'Brief summary of why the lead is delayed or unavailable, if applicable.',
+                  },
+                },
+                required: ['awaitingAnswer', 'pendingQuestion', 'reason'],
+                additionalProperties: false,
+              },
+              { type: 'null' },
+            ],
+            description: 'Updated conversation state to persist, or null if nothing to track.',
+          },
+          readyToBook: {
+            type: 'boolean',
+            description: 'True only if the lead has clearly expressed they are ready to schedule a viewing or appointment.',
+          },
+        },
+        required: ['subject', 'body', 'addNote', 'addTask', 'updateConversationState', 'readyToBook'],
+        additionalProperties: false,
+      },
+    },
+  };
+}
+
+// ---------------------------------------------------------------------------
+// buildPrompt
+// ---------------------------------------------------------------------------
+
+/**
+ * Builds the OpenAI messages array and the strict response_format schema.
  *
  * Parameters:
  *   mode:                'sms' | 'email'
- *   lead:                object | null — the lead record from the database
- *   conversation:        object | null — the conversation record from the database
- *   inboundText:         string        — the inbound message body
- *   inboundSubject:      string | null — subject line (email mode only)
+ *   lead:                object | null
+ *   conversation:        object | null
+ *   inboundText:         string
+ *   inboundSubject:      string | null  (email mode only)
  *   propertyDescription: string | null
- *   history:             Array         — prior messages from loadSmsHistory() or loadEmailHistory()
- *   notes:               Array         — lead note strings from loadLeadNotes()
+ *   history:             Array
+ *   notes:               Array
  *
  * Returns:
- *   Array of OpenAI message objects
+ *   { messages: Array, responseFormat: object }
  */
 export function buildPrompt(mode, lead, conversation, inboundText, inboundSubject, propertyDescription, history, notes) {
   const leadName = lead?.name || null;
   const leadReference = leadName ? `named ${leadName}` : 'whose name is unknown';
   const leadSource = lead?.source || 'an unknown source';
 
-  // Referral leads are warm — they were personally referred and have higher trust/intent.
-  // Give the AI explicit guidance so it greets them more personally and warmly.
   const isReferral = leadSource === 'referral';
   const referralGuidance = isReferral
     ? `\nIMPORTANT: This lead came in via a personal referral. They are a warm lead with an existing trust connection. ` +
@@ -61,7 +247,7 @@ export function buildPrompt(mode, lead, conversation, inboundText, inboundSubjec
     ? `Here is a description of the property this lead is interested in:\n${propertyDescription}`
     : 'This lead is not currently linked to a specific property.';
 
-  // Build conversation context section from the new schema fields
+  // Build conversation context section
   let conversationContextLines = [];
 
   if (conversation) {
@@ -108,32 +294,28 @@ ${notesSection}`;
 
   const conversationStateGuideline = `
 Guidelines for updateConversationState:
-- If you are asking the lead a question and need to remember it for next time, set:
-  { "awaitingAnswer": true, "pendingQuestion": "<your question>" }
-- If the lead asked for space or gave a reason for delay, set:
-  { "awaitingAnswer": false, "reason": "<brief summary of why>" }
-- If nothing notable needs to be tracked, set to null.`;
+- If you are asking the lead a question and need to remember it for next time, set awaitingAnswer to true and populate pendingQuestion.
+- If the lead asked for space or gave a reason for delay, set awaitingAnswer to false and populate reason.
+- If nothing notable needs to be tracked, return null.`;
 
   const sharedNoteTaskGuidelines = `
 Guidelines for addNote:
 - Add a note if the lead revealed something important (budget, timeline, preferences, concerns, etc.)
-- Set to null if the message was small talk or nothing noteworthy was said.
+- Return null if the message was small talk or nothing noteworthy was said.
 
 Guidelines for addTask:
 - Create a task if the lead requested a callback, a showing, more info, or anything that requires agent follow-up.
-- Set to null if no agent action is required.
+- Return null if no agent action is required.
 
 Guidelines for readyToBook:
 - Set to true ONLY if the lead has clearly expressed they are ready to schedule a viewing, meeting, or appointment.
 - Strong signals include: "I'd like to schedule a visit", "When can we meet?", "I'm ready to see the property", "Can we book a showing?", or similar direct expressions of readiness.
 - Do NOT set to true for general interest, questions about the property, or vague positive responses.
-- Set to false in all other cases.
-
-You MUST always return valid JSON. Do not include any text outside the JSON object.`;
+- Set to false in all other cases.`;
 
   const smsOptOutGuideline = `
 Opt-out instructions:
-- If the lead expresses that they no longer want to be contacted, do not want to continue the conversation, or asks to be left alone, politely let them know they can reply with the word STOP to end all future messages.
+- If the lead expresses that they no longer want to be contacted, politely let them know they can reply with the word STOP to end all future messages.
 - Do not end the conversation yourself — the system will automatically stop messaging them if they reply STOP.
 - Never pressure the lead to stay in the conversation.`;
 
@@ -147,17 +329,6 @@ ${sharedContext}
 
 ${smsOptOutGuideline}
 
-After reading the conversation and the new message, you must respond with a JSON object in this exact format:
-{
-  "reply": "<the SMS reply to send to the lead>",
-  "addNote": "<a note to add to this lead's record, to help remember vital information, or null if nothing important to log>",
-  "addTask": {
-    "title": "<short task title for the agent>",
-    "dueDate": "<ISO 8601 date string, or null if no specific due date>"
-  } or null if no task is needed,
-  "updateConversationState": { ... } or null,
-  "readyToBook": true or false
-}
 ${conversationStateGuideline}
 
 ${sharedNoteTaskGuidelines}`;
@@ -167,22 +338,10 @@ Write replies that are polite, clear, and appropriately detailed — this is ema
 Never make up property details. If you don't know something, say you'll follow up.
 ${sharedContext}
 
-After reading the conversation and the new message, you must respond with a JSON object in this exact format:
-{
-  "subject": "<the email subject line to use for the reply>",
-  "body": "<the full email body to send to the lead>",
-  "addNote": "<a note to add to this lead's record to help remember vital information, or null if nothing important to log>",
-  "addTask": {
-    "title": "<short task title for the agent>",
-    "dueDate": "<ISO 8601 date string, or null if no specific due date>"
-  } or null if no task is needed,
-  "updateConversationState": { ... } or null,
-  "readyToBook": true or false
-}
-
 Guidelines for subject:
 - If replying to an existing thread, prefix the original subject with "Re: " if not already present.
 - If this is a new conversation, write a relevant subject line.
+
 ${conversationStateGuideline}
 
 ${sharedNoteTaskGuidelines}`;
@@ -200,7 +359,7 @@ ${sharedNoteTaskGuidelines}`;
     });
   }
 
-  // Add the new inbound message — prefix with subject line in email mode if available
+  // Add the new inbound message
   if (mode === 'email' && inboundSubject) {
     messages.push({
       role: 'user',
@@ -213,33 +372,39 @@ ${sharedNoteTaskGuidelines}`;
     });
   }
 
-  return messages;
+  // Build the mode-specific strict response schema
+  const responseFormat = mode === 'sms'
+    ? buildSmsResponseFormat()
+    : buildEmailResponseFormat();
+
+  return { messages, responseFormat };
 }
 
-/* Calls OpenAI GPT-4o-mini and parses the structured JSON response.
+// ---------------------------------------------------------------------------
+// generateAiReply
+// ---------------------------------------------------------------------------
+
+/**
+ * Calls OpenAI and parses the structured JSON response.
  *
  * SMS mode returns:
- *   { reply: string, addNote: string | null, addTask: { title: string, dueDate: string | null } | null, updateConversationState: object | null, readyToBook: boolean }
+ *   { reply, addNote, addTask, updateConversationState, readyToBook, optedOut }
  *
  * Email mode returns:
- *   { subject: string, body: string, addNote: string | null, addTask: { title: string, dueDate: string | null } | null, updateConversationState: object | null, readyToBook: boolean }
+ *   { subject, body, addNote, addTask, updateConversationState, readyToBook }
  *
  * Parameters:
  *   mode:                'sms' | 'email'
  *   lead:                object | null
- *   conversation:        object | null — the conversation record from the database
- *   inboundText:         string        — the message body
- *   inboundSubject:      string | null — email subject (email mode only, pass null for sms)
+ *   conversation:        object | null
+ *   inboundText:         string
+ *   inboundSubject:      string | null
  *   propertyDescription: string | null
  *   history:             Array
  *   notes:               Array
- *
- * Returns:
- *   object — shape depends on mode (see above)
  */
 export async function generateAiReply(mode, lead, conversation, inboundText, inboundSubject, propertyDescription, history, notes) {
-  // SMS opt-out: if the lead replied exactly "STOP" (case-INsensitive), halt immediately.
-  // The caller is responsible for updating the conversation status to 'opted_out'.
+  // SMS opt-out: halt immediately if the lead replied exactly "STOP"
   if (isOptOut(inboundText)) {
     if (mode === 'sms') {
       return {
@@ -253,77 +418,80 @@ export async function generateAiReply(mode, lead, conversation, inboundText, inb
     }
   }
 
-  const messages = buildPrompt(mode, lead, conversation, inboundText, inboundSubject, propertyDescription, history, notes);
+  const { messages, responseFormat } = buildPrompt(
+    mode, lead, conversation, inboundText, inboundSubject, propertyDescription, history, notes
+  );
 
   const maxTokens = mode === 'sms' ? 400 : 800;
 
-  const completion = await openai.chat.completions.create({
-    model: 'gpt-4o-mini',
-    messages,
-    max_tokens: maxTokens,
-    response_format: { type: 'json_object' },
-  });
-
-  const raw = completion.choices[0].message.content.trim();
-
   let parsed;
   try {
+    const completion = await openai.chat.completions.create({
+      model: 'gpt-4o-mini',
+      messages,
+      max_tokens: maxTokens,
+      response_format: responseFormat,
+    });
+
+    const raw = completion.choices[0].message.content.trim();
     parsed = JSON.parse(raw);
   } catch (err) {
-    console.error(`Failed to parse GPT JSON response (${mode}):`, raw);
+    console.error(`Failed to call OpenAI or parse response (${mode}):`, err);
 
+    // Graceful fallback
     if (mode === 'sms') {
-      return { reply: raw, addNote: null, addTask: null, updateConversationState: null, readyToBook: false };
+      return { reply: null, addNote: null, addTask: null, updateConversationState: null, readyToBook: false, optedOut: false };
     } else {
-      return { subject: inboundSubject || 'Re: Your Inquiry', body: raw, addNote: null, addTask: null, updateConversationState: null, readyToBook: false };
+      return { subject: inboundSubject || 'Re: Your Inquiry', body: null, addNote: null, addTask: null, updateConversationState: null, readyToBook: false };
     }
   }
 
   if (mode === 'sms') {
     return {
-      reply: parsed.reply || ' ',
-      addNote: parsed.addNote || null,
-      addTask: parsed.addTask || null,
-      updateConversationState: parsed.updateConversationState || null,
-      readyToBook: parsed.readyToBook === true,
-      optedOut: false,
+      reply:                   parsed.reply   ?? null,
+      addNote:                 parsed.addNote ?? null,
+      addTask:                 parsed.addTask ?? null,
+      updateConversationState: parsed.updateConversationState ?? null,
+      readyToBook:             parsed.readyToBook === true,
+      optedOut:                false,
     };
   } else {
     return {
-      subject: parsed.subject || 'Re: Your Inquiry',
-      body: parsed.body || '',
-      addNote: parsed.addNote || null,
-      addTask: parsed.addTask || null,
-      updateConversationState: parsed.updateConversationState || null,
-      readyToBook: parsed.readyToBook === true,
+      subject:                 parsed.subject ?? inboundSubject ?? 'Re: Your Inquiry',
+      body:                    parsed.body    ?? null,
+      addNote:                 parsed.addNote ?? null,
+      addTask:                 parsed.addTask ?? null,
+      updateConversationState: parsed.updateConversationState ?? null,
+      readyToBook:             parsed.readyToBook === true,
     };
   }
 }
 
-/* Uses GPT-4o-mini to assess a lead's behavior and intent, returning a score from 0–30
- * and a short reasoning string to display to the agent.
- *
- * This is criterion 1 of the lead scoring system and carries the most weight (30 of 100 pts).
+// ---------------------------------------------------------------------------
+// generateAiLeadScore
+// ---------------------------------------------------------------------------
+
+/**
+ * Uses GPT-4o-mini to assess a lead's behavior and intent, returning a score
+ * from 0–30 and a short reasoning string.
  *
  * Parameters:
- *   lead:                object | null  — the lead record from the database
- *   history:             Array          — all messages for this lead (email or SMS)
- *   notes:               Array<string>  — lead note strings from loadLeadNotes()
- *   propertyDescription: string | null  — from loadPropertyDescription()
+ *   lead:                object | null
+ *   history:             Array
+ *   notes:               Array<string>
+ *   propertyDescription: string | null
  *
  * Returns:
  *   { score: number (0–30), reasoning: string }
  */
 export async function generateAiLeadScore(lead, history, notes, propertyDescription) {
-  const leadName = lead?.name || 'Unknown';
+  const leadName   = lead?.name   || 'Unknown';
   const leadSource = lead?.source || 'Unknown';
   const leadStatus = lead?.status || 'Unknown';
   const isReferral = leadSource === 'referral';
 
   const historyText = history.length > 0
-    ? history
-        .map((m) => `[${m.direction}] ${m.body || ''}`)
-        .join('\n')
+    ? history.map((m) => `[${m.direction}] ${m.body || ''}`).join('\n')
     : 'No conversation history.';
 
   const notesText = notes.length > 0
@@ -332,13 +500,9 @@ export async function generateAiLeadScore(lead, history, notes, propertyDescript
 
   const propertyText = propertyDescription || 'No property linked.';
 
-  // Referral leads start with an inherent trust advantage — instruct the AI
-  // to weight this positively when scoring, consistent with scoreLeadSource()
-  // returning 8 pts (the highest source score) for referrals.
   const referralInstruction = isReferral
     ? `\nNOTE: This lead came in via a personal referral. Referral leads have an inherent trust advantage ` +
-      `and higher baseline conversion likelihood. Weight this positively in your score — ` +
-      `all else being equal, a referral lead should score higher than a cold lead with the same engagement level.`
+      `and higher baseline conversion likelihood. Weight this positively in your score.`
     : '';
 
   const systemPrompt = `You are an expert real estate lead analyst.
@@ -351,15 +515,7 @@ Scoring guide:
   13–18: Moderate intent, some engagement, unclear timeline.
   19–24: High intent, responsive, clear interest in a property.
   25–30: Very high intent, actively engaged, strong buying signals.
-${referralInstruction}
-
-You MUST respond with a JSON object in this exact format:
-{
-  "score": <integer from 0 to 30>,
-  "reasoning": "<one or two sentences explaining the score>"
-}
-
-Do not include any text outside the JSON object.`;
+${referralInstruction}`;
 
   const userPrompt = `Lead name: ${leadName}
 Lead source: ${leadSource}
@@ -374,17 +530,39 @@ ${historyText}
 Agent notes:
 ${notesText}`;
 
-  let parsed;
+  const scoreResponseFormat = {
+    type: 'json_schema',
+    json_schema: {
+      name: 'lead_score',
+      strict: true,
+      schema: {
+        type: 'object',
+        properties: {
+          score: {
+            type: 'integer',
+            description: 'Lead quality score from 0 to 30.',
+          },
+          reasoning: {
+            type: 'string',
+            description: 'One or two sentences explaining the score.',
+          },
+        },
+        required: ['score', 'reasoning'],
+        additionalProperties: false,
+      },
+    },
+  };
 
+  let parsed;
   try {
     const completion = await openai.chat.completions.create({
-      model: 'gpt-o4-mini', // stronger reasoning model
+      model: 'gpt-4o-mini',
       messages: [
         { role: 'system', content: systemPrompt },
-        { role: 'user', content: userPrompt },
+        { role: 'user',   content: userPrompt },
       ],
       max_tokens: 200,
-      response_format: { type: 'json_object' },
+      response_format: scoreResponseFormat,
     });
 
     const raw = completion.choices[0].message.content.trim();
@@ -394,7 +572,7 @@ ${notesText}`;
     return { score: 0, reasoning: 'AI scoring unavailable.' };
   }
 
-  const score = Math.min(30, Math.max(0, Math.round(parsed.score ?? 0)));
+  const score     = Math.min(30, Math.max(0, Math.round(parsed.score ?? 0)));
   const reasoning = parsed.reasoning || 'No reasoning provided.';
 
   return { score, reasoning };

@@ -5,6 +5,7 @@
  *  - Fetches dashboard + properties + messages data on mount
  *  - Stores everything in localStorage so it persists across page navigations
  *  - Auto-refreshes every 60 seconds regardless of which page the user is on
+ *  - Always runs a background refresh on mount to ensure fresh data
  *  - Exposes optimistic update helpers
  */
 
@@ -59,6 +60,7 @@ function saveToStorage<T>(key: string, data: T, cachedAt: number) {
 // ---------------------------------------------------------------------------
 
 async function fetchDashboard(since: string): Promise<RawDashboardData> {
+  
   const url = `${BACKEND_URL}api/dashboard?since=${since}`
   const res = await fetch(url, { credentials: 'include' })
   if (!res.ok) throw new Error(`HTTP ${res.status}: ${res.statusText}`)
@@ -169,7 +171,7 @@ export function DashboardCacheProvider({ children }: { children: React.ReactNode
     saveToStorage(LS_KEY_DASHBOARD, data, now)
   }, [])
 
-  // ── Initial full load — dashboard ────────────────────────────────────────
+  // ── Full load — dashboard ────────────────────────────────────────────────
   const doInitialLoad = useCallback(async () => {
     setLoading(true)
     setError(null)
@@ -184,7 +186,7 @@ export function DashboardCacheProvider({ children }: { children: React.ReactNode
     }
   }, [applyDashCache])
 
-  // ── Initial full load — properties ───────────────────────────────────────
+  // ── Full load — properties ───────────────────────────────────────────────
   const doLoadProperties = useCallback(async () => {
     setPropertiesLoading(true)
     setPropertiesError(null)
@@ -199,7 +201,7 @@ export function DashboardCacheProvider({ children }: { children: React.ReactNode
     }
   }, [])
 
-  // ── Initial full load — messages ─────────────────────────────────────────
+  // ── Full load — messages ─────────────────────────────────────────────────
   const doLoadMessages = useCallback(async () => {
     setMessagesLoading(true)
     setMessagesError(null)
@@ -214,27 +216,45 @@ export function DashboardCacheProvider({ children }: { children: React.ReactNode
     }
   }, [])
 
-  // ── Incremental refresh ──────────────────────────────────────────────────
-  const doIncrementalRefresh = useCallback(async () => {
+  // ── Background refresh — always runs silently, never sets loading=true ───
+  // This is called both on mount (to immediately correct stale cache) and on
+  // the periodic interval. It merges fresh data into the existing cache so
+  // the UI updates without any loading flicker.
+  const doBackgroundRefresh = useCallback(async () => {
     if (!initialLoadDone.current) return
     try {
       const fresh = await fetchDashboard(INCREMENTAL_WINDOW)
-      setCache((prev) => {
-        const merged = prev ? mergeDashboardData(prev, fresh) : fresh
+      setCache(() => {
         const now = Date.now()
         setCachedAt(now)
-        saveToStorage(LS_KEY_DASHBOARD, merged, now)
-        return merged
+        saveToStorage(LS_KEY_DASHBOARD, fresh, now)
+        return fresh
       })
     } catch {
-      // Silently ignore
+      // Silently ignore — stale cache is still shown
     }
     try {
       const [freshProps, freshMsgs] = await Promise.all([fetchProperties(), fetchMessages()])
-      setProperties(freshProps)
-      saveToStorage(LS_KEY_PROPERTIES, freshProps, Date.now())
-      setMessages(freshMsgs)
-      saveToStorage(LS_KEY_MESSAGES, freshMsgs, Date.now())
+
+      setProperties((prev) => {
+        const freshIds = new Set(freshProps.map((p) => p.id))
+        const updated = prev.filter((p) => freshIds.has(p.id))
+        if (updated.length !== freshProps.length || updated.some((p, i) => p.id !== freshProps[i].id)) {
+          saveToStorage(LS_KEY_PROPERTIES, freshProps, Date.now())
+          return freshProps
+        }
+        return prev
+      })
+
+      setMessages((prev) => {
+        const freshIds = new Set(freshMsgs.map((m) => m.id))
+        const updated = prev.filter((m) => freshIds.has(m.id))
+        if (updated.length !== freshMsgs.length || updated.some((m, i) => m.id !== freshMsgs[i].id)) {
+          saveToStorage(LS_KEY_MESSAGES, freshMsgs, Date.now())
+          return freshMsgs
+        }
+        return prev
+      })
     } catch {
       // Silently ignore
     }
@@ -245,32 +265,40 @@ export function DashboardCacheProvider({ children }: { children: React.ReactNode
     const now = Date.now()
 
     if (persistedDash && now - persistedDash.cachedAt < CACHE_STALE_MS) {
+      // Cache is fresh enough to show immediately — but still kick off a
+      // background refresh right away so unverified leads / status changes
+      // are reflected without waiting for the 60s interval.
       initialLoadDone.current = true
       setLoading(false)
+      doBackgroundRefresh()
     } else {
+      // Cache is missing or stale — do a full blocking load
       doInitialLoad()
     }
 
     if (persistedProps && now - persistedProps.cachedAt < CACHE_STALE_MS) {
       setPropertiesLoading(false)
+      // Still refresh properties in the background via doBackgroundRefresh above
     } else {
       doLoadProperties()
     }
 
     if (persistedMsgs && now - persistedMsgs.cachedAt < CACHE_STALE_MS) {
       setMessagesLoading(false)
+      // Still refresh messages in the background via doBackgroundRefresh above
     } else {
       doLoadMessages()
     }
 
-    intervalRef.current = setInterval(doIncrementalRefresh, REFRESH_INTERVAL_MS)
+    // Periodic interval — runs every 60s after the initial mount refresh
+    intervalRef.current = setInterval(doBackgroundRefresh, REFRESH_INTERVAL_MS)
     return () => {
       if (intervalRef.current) clearInterval(intervalRef.current)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  // ── Public reload ────────────────────────────────────────────────────────
+  // ── Public reload (manual) ───────────────────────────────────────────────
   const reload = useCallback(async () => {
     await Promise.all([doInitialLoad(), doLoadProperties(), doLoadMessages()])
   }, [doInitialLoad, doLoadProperties, doLoadMessages])
@@ -299,7 +327,7 @@ export function DashboardCacheProvider({ children }: { children: React.ReactNode
     })
   }, [])
 
-  // ── Optimistic: remove property (pending_deletion) ───────────────────────
+  // ── Optimistic: remove property ──────────────────────────────────────────
   const removeProperty = useCallback((id: string | number) => {
     setProperties((prev) => {
       const updated = prev.filter((p) => String(p.id) !== String(id))
@@ -312,7 +340,8 @@ export function DashboardCacheProvider({ children }: { children: React.ReactNode
       saveToStorage(LS_KEY_DASHBOARD, updated, Date.now())
       return updated
     })
-  }, [])
+    void reload()
+  }, [reload])
 
   // ── Optimistic: add lead ─────────────────────────────────────────────────
   const addLead = useCallback((lead: RawDashboardData['leads'][number]) => {
@@ -341,7 +370,7 @@ export function DashboardCacheProvider({ children }: { children: React.ReactNode
     })
   }, [])
 
-  // ── Optimistic: remove lead (pending_deletion) ───────────────────────────
+  // ── Optimistic: remove lead ──────────────────────────────────────────────
   const removeLead = useCallback((id: number) => {
     setCache((prev) => {
       if (!prev) return prev
@@ -353,7 +382,8 @@ export function DashboardCacheProvider({ children }: { children: React.ReactNode
       saveToStorage(LS_KEY_DASHBOARD, updated, Date.now())
       return updated
     })
-  }, [])
+    void reload()
+  }, [reload])
 
   return (
     <DashboardCacheContext.Provider

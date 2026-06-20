@@ -85,7 +85,7 @@ const {
   matchProperty,
   checkEmails,
   checkDuplicates,
-} = await import('../src/email-webhook-helpers.js');
+} = await import('../src/pubsub-webhook-helpers.js');
 
 /*
 |--------------------------------------------------------------------------

@@ -32,7 +32,9 @@ export const entityTypeEnum = pgEnum('entity_type', ['lead', 'conversation', 'em
 
 // Consolidated source enum — used by both leads and properties.
 // 'referral' = lead came in via a personal referral from an existing contact.
-export const sourceEnum = pgEnum('source_type', ['zillow', 'realtor', 'referral', 'unknown']);
+export const sourceEnum = pgEnum('source_type', ['zillow', 'realtor', 'referral', 'email']);
+
+export const propertySourceEnum = pgEnum('property_source_type', ['zillow', 'realtor', 'listing' ]);
 
 export const userSourceEnum = pgEnum('user_source', ['google', 'microsoft', 'manual']);
 
@@ -43,7 +45,7 @@ export const conversationStatus = pgEnum('conversation_status', ['active', 'cold
 //   ready           — AI detected the lead is ready to book an appointment
 //   archived        — lead is no longer active but kept for records
 //   pending_deletion — lead is scheduled for deletion
-export const leadStatusEnum = pgEnum('lead_status', ['active', 'ready', 'archived', 'pending_deletion']);
+export const leadStatusEnum = pgEnum('lead_status', ['unverified', 'active', 'ready', 'archived', 'pending_deletion']);
 
 // How many leads the agent handles per month.
 export const leadsPerMonthEnum = pgEnum('leads_per_month', ['0_25', '25_50', '50_100', '100_plus']);
@@ -232,9 +234,9 @@ export const properties = pgTable('properties', {
     withTimezone: true,
   }),
 
-  source: sourceEnum('property_source')
-    .notNull()
-    .default('unknown'),
+  source: propertySourceEnum('property_source')
+  .default('listing')
+  .notNull(),
 
   externalId: text('external_id'),
 
@@ -421,6 +423,8 @@ export const email = pgTable('email', {
 
   sender: jsonb('sender')
     .notNull(),
+
+  inReplyTo: text('in_reply_to_id'),
 
   recipient: jsonb('recipient')
     .notNull(),

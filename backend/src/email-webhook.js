@@ -228,6 +228,8 @@ export async function handleInboundLeadEmail(parsedEmail) {
   }
 }
 
+
+
 /*
 |--------------------------------------------------------------------------
 | Routes
@@ -270,6 +272,7 @@ emailDraftWebhookRouter.post('/draft', async (req, res) => {
     return res.status(400).json({ error: 'leadId is required.' });
   }
 
+
   const agentUserId = req.userId;
 
   if (!agentUserId) {
@@ -290,37 +293,7 @@ emailDraftWebhookRouter.post('/draft', async (req, res) => {
       return res.status(404).json({ error: 'Lead not found.' });
     }
 
-    // Load context for the AI prompt.
-    const notes = await loadLeadNotes(lead.id);
-    const propertyDescription = await loadPropertyDescription(lead.id);
-
-    // Load the most recent email conversation for this lead.
-    const existingConversations = await db
-      .select()
-      .from(conversations)
-      .where(
-        and(
-          eq(conversations.leadId, lead.id),
-          eq(conversations.type, 'email')
-        )
-      )
-      .limit(1);
-
-    const conversation = existingConversations[0] || null;
-
-    const history = conversation
-      ? await loadEmailHistory(conversation.id)
-      : [];
-
-    const { subject, body } = await generateEmailReply(
-      lead,
-      conversation,
-      inboundSubject || null,
-      inboundBody || '',
-      propertyDescription,
-      history,
-      notes,
-    );
+    const { subject, body } = await writeReplyEmail(lead);
 
     return res.status(200).json({ subject, body });
   } catch (err) {

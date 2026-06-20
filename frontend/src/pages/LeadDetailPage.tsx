@@ -205,7 +205,14 @@ export function LeadDetailPage() {
                             : 'bg-[#f9fafb] text-[#0f172a] border border-[#e5e7eb]'
                         }`}
                       >
-                        <p>{msg.body}</p>
+                        <p className="flex items-center gap-1">
+                          {msg.channel === 'sms' ? (
+                            <Phone className="w-3 h-3 text-current" />
+                          ) : (
+                            <Mail className="w-3 h-3 text-current" />
+                          )}
+                          {msg.body}
+                        </p>
                         <p
                           className={`text-[10px] mt-1 ${
                             msg.direction === 'outbound' ? 'text-indigo-200' : 'text-[#94a3b8]'

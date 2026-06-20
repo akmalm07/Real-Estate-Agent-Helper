@@ -12,7 +12,7 @@ import { eq, and } from 'drizzle-orm';
 import { createGmailAuthClient, sendEmail as gmailSend, sendReply as gmailSendReply } from './gmail.js';
 import { generateAiReply } from './ai-helpers.js';
 import { loadLeadNotes, loadPropertyDescription } from './load-lead-helpers.js';
-import { extractPlainText } from './email-webhook-helpers.js';
+import { extractPlainText } from './pubsub-webhook-helpers.js';
 
 /*
 |--------------------------------------------------------------------------
@@ -160,6 +160,7 @@ export async function saveEmailMessage(
   fromAddress,
   toAddresses,
   ccAddresses,
+  inReplyTo,
   subject,
   body,
   externalMessageId = null,
@@ -173,6 +174,7 @@ export async function saveEmailMessage(
     cc: ccAddresses.map((addr) => ({ email: addr })),
     subject,
     body,
+    inReplyTo,
     externalMessageId,
     sentAt: sentAt || new Date(),
   });
@@ -269,7 +271,7 @@ export async function sendAndSaveEmail(
     'outbound',
     agentEmail,
     [toAddress],
-    [],
+    inReplyToMessageId,
     subject,
     body,
     gmailMessageId,

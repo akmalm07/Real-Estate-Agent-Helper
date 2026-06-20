@@ -10,6 +10,8 @@ import {
 import { eq, and } from 'drizzle-orm';
 import { generateAiReply } from './ai-helpers.js';
 
+const fromNumber = process.env.TELNYX_PHONE_NUMBER;
+
 /*
 |--------------------------------------------------------------------------
 | SMS Database Helpers
@@ -71,13 +73,13 @@ export async function loadSmsHistory(leadId) {
  *
  * Parameters:
  *   leadId:     number — the lead's database ID
- *   fromNumber: string — the lead's phone number (E.164)
- *   toNumber:   string — our Twilio phone number (E.164)
+ *   toNumber: string — the lead's phone number (E.164)
  *
  * Returns:
  *   conversation record — either the existing or newly created conversation
  */
-export async function findOrCreateSmsConversation(leadId, fromNumber, toNumber) {
+
+export async function findOrCreateSmsConversation(leadId, toNumber) {
   const existing = await db
     .select()
     .from(conversations)
@@ -94,7 +96,6 @@ export async function findOrCreateSmsConversation(leadId, fromNumber, toNumber) 
   }
 
   // Create a new SMS conversation for this lead.
-  // initialSender is the lead, initialRecipient is our Twilio number.
   const inserted = await db
     .insert(conversations)
     .values({
@@ -118,7 +119,7 @@ export async function findOrCreateSmsConversation(leadId, fromNumber, toNumber) 
  *   conversationId:    number           — the conversation this message belongs to
  *   direction:         'inbound' | 'outbound'
  *   body:              string           — the message text
- *   externalMessageId: string | null    — Twilio MessageSid if available
+ *   externalMessageId: string | null    — Telnyx MessageSid if available
  */
 export async function saveSmsMessage(conversationId, direction, body, externalMessageId = null) {
   const now = new Date();

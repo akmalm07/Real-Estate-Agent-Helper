@@ -2,7 +2,7 @@ import OpenAI from 'openai';
 import { eq, and } from 'drizzle-orm';
 import { db } from '../db/index.js';
 import { properties, leads, conversations } from '../db/schema.js';
-import { sendSMS as twilioSendSMS } from './phone.js';
+import { sendSMS } from './phone.js';
 import {
   findOrCreateSmsConversation,
   saveSmsMessage,
@@ -14,6 +14,7 @@ import {
   sendAndSaveEmail,
   generateEmailReply,
 } from './email-helpers.js';
+import { createGmailAuthClient } from './gmail.js'
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
@@ -125,23 +126,56 @@ export async function aiParseLead(body) {
 |--------------------------------------------------------------------------
 */
 
+function detectReferral(subject, body, from, parsed = null) {
+  const text = `${subject}\n${body}\n${from}`.toLowerCase();
+
+  // strong referral phrases (real-world CRM patterns)
+  const referralPatterns = [
+    /referred\s+by/,
+    /referral\s+from/,
+    /was\s+referred/,
+    /recommended\s+by/,
+    /sent\s+you\s+a\s+lead/,
+    /sent\s+this\s+lead/,
+    /has\s+shared\s+a\s+lead/,
+    /forwarded\s+this\s+lead/,
+    /you\s+have\s+a\s+referral/,
+    /referred\s+this\s+client/,
+    /came\s+from\s+a\s+referral/
+  ];
+
+  const hasPattern = referralPatterns.some((r) => r.test(text));
+
+  // sender-based hints (very important for Zillow/Realtor ecosystems)
+  const senderHints =
+    /zillow|realtor|agent|team|real\s*estate|broker/i.test(from) &&
+    /(referral|referred|lead|contact)/i.test(text);
+
+  // parsed signal (from your regex/AI pipeline)
+  const parsedSignal = parsed?.isReferral === true;
+
+  return hasPattern || senderHints || parsedSignal;
+}
+
+
 export async function checkEmails(emails) {
-  // Named 'results' to avoid shadowing the imported 'leads' table
   const results = [];
 
   for (const email of emails) {
     const headers = email.payload?.headers ?? [];
-    const from = headers.find((h) => h.name.toLowerCase() === 'from')?.value ?? '';
-    const subject = headers.find((h) => h.name.toLowerCase() === 'subject')?.value ?? '';
 
-    // Detect source from the sender domain first — most reliable signal.
+    const from =
+      headers.find((h) => h.name?.toLowerCase() === 'from')?.value ?? '';
+
+    const subject =
+      headers.find((h) => h.name?.toLowerCase() === 'subject')?.value ?? '';
+
     const isZillow = /zillow\.com/i.test(from);
     const isRealtor = /realtor\.com/i.test(from);
 
     const body = email.payload?.bodyText ?? extractPlainText(email.payload);
 
     if (!body) continue;
-
     if (!isLead(from, body)) continue;
 
     let parsed = regexParseLead(body);
@@ -154,23 +188,22 @@ export async function checkEmails(emails) {
       }
     }
 
-    // Determine source:
-    //   1. Zillow sender domain  → 'zillow'
-    //   2. Realtor sender domain → 'realtor'
-    //   3. Body or subject contains referral language, or AI/regex detected isReferral → 'referral'
-    //   4. Fallback              → 'unknown'
+    // ✅ NEW: robust referral detection
+    const isReferral = detectReferral(subject, body, from, parsed);
+
     let source;
+
+    let varify = false;
+
     if (isZillow) {
       source = 'zillow';
     } else if (isRealtor) {
       source = 'realtor';
-    } else if (
-      parsed.isReferral ||
-      /referred by|was referred|referral from|sent by|recommended by/i.test(subject)
-    ) {
+    } else if (isReferral) {
       source = 'referral';
+      varify = true;
     } else {
-      source = 'unknown';
+      source = 'email';
     }
 
     results.push({
@@ -178,12 +211,14 @@ export async function checkEmails(emails) {
       subject,
       from,
       source,
+      askClient: varify,
       gmailMessageId: email.id ?? null,
     });
   }
 
   return results;
 }
+
 
 /*
 |--------------------------------------------------------------------------
@@ -362,15 +397,20 @@ export async function checkDuplicates(parsedLeads, user) {
  * Parameters:
  *   lead: object — the newly inserted lead record from the database
  */
-export async function sendInitialSms(lead) {
-  const agentPhone = process.env.TWILIO_FROM_NUMBER;
+export async function sendInitialSms(lead, message = null) {
 
-  const conversation = await findOrCreateSmsConversation(lead.id, lead.phone, agentPhone);
+  const conversation = await findOrCreateSmsConversation(lead.id, lead.phone);
 
   // No prior history or notes for a brand-new lead
-  const { reply } = await generateSmsReply(lead, conversation, '', null, [], []);
+  let reply;
+  if (!message) {
+    const obj = await generateSmsReply(lead, conversation, '', null, [], []);
+    reply = obj.reply;
+  } else {
+    reply = message;
+  }
 
-  await twilioSendSMS(lead.phone, reply);
+  await sendSMS(lead.phone, reply);
 
   await saveSmsMessage(conversation.id, 'outbound', reply, null);
 }
@@ -384,7 +424,7 @@ export async function sendInitialSms(lead) {
  *   agentEmail:        string — the agent's email address
  *   oauthRefreshToken: string — the agent's OAuth refresh token
  */
-export async function sendInitialEmail(lead, agentEmail, oauthRefreshToken) {
+export async function sendInitialEmail(lead, agentEmail, oauthRefreshToken, message = null, subject = null) {
   const conversation = await findOrCreateEmailConversation(
     lead.id,
     agentEmail,
@@ -394,23 +434,30 @@ export async function sendInitialEmail(lead, agentEmail, oauthRefreshToken) {
     null,
   );
 
-  // No prior history or notes for a brand-new lead
-  const { subject, body } = await generateEmailReply(
-    lead,
-    conversation,
-    null,
-    '',
-    null,
-    [],
-    [],
-  );
+  let msg;
+  let sub;
+  if (!message || !subject) { // No prior history or notes for a brand-new lead
+    const { subject, body } = await generateEmailReply(
+      lead,
+      conversation,
+      null,
+      '',
+      null,
+      [],
+      [],
+    );
+  } else {
+    msg = message ?? '';
+    sub = subject ?? '';
+  }
+
 
   await sendAndSaveEmail(
     oauthRefreshToken,
     agentEmail,
     lead.email,
-    subject,
-    body,
+    sub,
+    msg,
     conversation.id,
   );
 }
@@ -420,17 +467,17 @@ export async function sendInitialEmail(lead, agentEmail, oauthRefreshToken) {
  * Logs a warning and skips the lead if neither is available.
  *
  * Parameters:
- *   insertedLeads:     object[] — the full lead records returned from the DB insert
+ *   leads:             object[] — the full lead records returned from the DB insert
  *   agentEmail:        string   — the agent's email address
  *   oauthRefreshToken: string   — the agent's OAuth refresh token
  */
-export async function sendInitialMessages(insertedLeads, agentEmail, oauthRefreshToken) {
-  for (const lead of insertedLeads) {
+export async function sendInitialMessages(leads, agentEmail, oauthRefreshToken, message = null, subject = null) {
+  for (const lead of leads) {
     try {
       if (lead.phone) {
-        await sendInitialSms(lead);
+        await sendInitialSms(lead, message);
       } else if (lead.email) {
-        await sendInitialEmail(lead, agentEmail, oauthRefreshToken);
+        await sendInitialEmail(lead, agentEmail, oauthRefreshToken, message, message);
       } else {
         console.warn('Lead has neither phone nor email, skipping initial message:', lead.id);
       }

@@ -23,7 +23,8 @@
     "jsonwebtoken": "^9.0.3",
     "openai": "^6.41.0",
     "telnyx": "^6.83.0",
-    "twilio": "^6.0.2"
+    "twilio": "^6.0.2",
+    "ws": "^8.21.0"
   },
   "devDependencies": {
     "drizzle-kit": "^0.31.10"

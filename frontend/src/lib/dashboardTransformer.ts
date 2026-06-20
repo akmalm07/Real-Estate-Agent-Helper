@@ -45,6 +45,7 @@ export interface RawLead {
   name?: string | null
   source?: string | null
   aiEnabled?: boolean
+  propertyId?: number | null // Added propertyId
 }
 
 export interface RawMessage {

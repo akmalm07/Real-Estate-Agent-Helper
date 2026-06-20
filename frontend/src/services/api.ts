@@ -26,7 +26,7 @@ export interface Lead {
   name: string
   email: string
   phone: string
-  status: 'new' | 'active' | 'cold' | 'converted' | 'opted_out'
+  status: 'new' | 'active' | 'cold' | 'unverified' | 'converted' | 'opted_out'
   source: string
   score: number
   createdAt: string

@@ -177,14 +177,14 @@ export function SettingsPage() {
             onConnect={() => setGoogleConnected(true)}
             onDisconnect={() => setGoogleConnected(false)}
           />
-          <IntegrationCard
+          { /*<IntegrationCard
             icon={<Mail className="w-5 h-5 text-[#475569]" />}
             title="Outlook / Microsoft"
             description="Sync Outlook emails and calendar"
             connected={false}
             onConnect={() => {}}
             onDisconnect={() => {}}
-          />
+          /> */}
         </CardContent>
       </Card>
 

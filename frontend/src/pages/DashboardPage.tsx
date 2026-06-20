@@ -2,7 +2,7 @@
  * DashboardPage.tsx
  *
  * Responsibilities:
- *  - Consume dashboard cache from  
+ *  - Consume dashboard cache from DashboardCacheContext
  *  - Pass data through dashboardTransformer
  *  - Render UI — NO business logic here
  */
@@ -21,6 +21,7 @@ import {
   CheckCircle2,
   StickyNote,
   ChevronDown,
+  ShieldAlert,
 } from 'lucide-react'
 
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/Card'
@@ -102,7 +103,6 @@ function TimeWindowDropdown({
   const [open, setOpen] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
 
-  // Close on outside click
   useEffect(() => {
     function handler(e: MouseEvent) {
       if (ref.current && !ref.current.contains(e.target as Node)) {
@@ -155,10 +155,8 @@ export function DashboardPage() {
   const navigate = useNavigate()
   const [searchParams, setSearchParams] = useSearchParams()
 
-  // ── Consume global cache ─────────────────────────────────────────────────
   const { cache, loading, error, reload } = useDashboardCache()
 
-  // ── Time window — driven by URL param, defaults to 1m ───────────────────
   const windowParam = searchParams.get('since') as TimeWindow | null
   const validWindows = new Set<TimeWindow>(['1d', '7d', '1m', '3m', 'all'])
   const selectedWindow: TimeWindow =
@@ -178,18 +176,21 @@ export function DashboardPage() {
     [setSearchParams]
   )
 
-  // ── Transform cached data through business logic layer ───────────────────
   const dashboard: TransformedDashboard | null = useMemo(() => {
     if (!cache) return null
     return transformDashboardData(cache, selectedWindow)
   }, [cache, selectedWindow])
 
-  // ── Error state (only if no cache at all) ────────────────────────────────
+  // Count unverified leads from cache for the attention banner
+  const unverifiedCount = useMemo(() => {
+    if (!cache?.leads) return 0
+    return cache.leads.filter((l) => l.status === 'unverified').length
+  }, [cache])
+
   if (error && !cache) {
     return <ErrorState message={error} onRetry={reload} />
   }
 
-  // ── Render ───────────────────────────────────────────────────────────────
   return (
     <div className="space-y-6">
       {/* Page header */}
@@ -208,9 +209,7 @@ export function DashboardPage() {
         </div>
 
         <div className="flex items-center gap-3">
-          {/* Time window dropdown */}
           <TimeWindowDropdown value={selectedWindow} onChange={setWindow} />
-
           <button
             onClick={() => navigate('/leads')}
             className="flex items-center gap-1.5 text-sm font-medium text-[#4f46e5] hover:text-[#4338ca] transition-colors"
@@ -220,6 +219,25 @@ export function DashboardPage() {
           </button>
         </div>
       </div>
+
+      {/* Unverified leads attention banner */}
+      {unverifiedCount > 0 && (
+        <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 flex items-center gap-3">
+          <ShieldAlert className="w-4 h-4 text-amber-600 flex-shrink-0" />
+          <p className="text-sm text-amber-800 flex-1">
+            <span className="font-semibold">
+              {unverifiedCount} unverified lead{unverifiedCount !== 1 ? 's' : ''}
+            </span>
+            {' '}require your review before they can be contacted.
+          </p>
+          <button
+            onClick={() => navigate('/leads?filter=unverified')}
+            className="text-xs font-semibold text-amber-700 hover:text-amber-900 underline underline-offset-2 transition-colors flex-shrink-0"
+          >
+            Review now
+          </button>
+        </div>
+      )}
 
       {/* KPI Cards */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
@@ -305,7 +323,7 @@ export function DashboardPage() {
             <CardContent>
               {loading || !dashboard ? (
                 <div className="space-y-3">
-                  {Array.from({ length: 4 }).map((_, i) => (
+                  {Array.from({ length: 5 }).map((_, i) => (
                     <div key={i} className="space-y-1">
                       <div className="flex items-center justify-between">
                         <Skeleton className="h-4 w-20" />
@@ -320,8 +338,17 @@ export function DashboardPage() {
                   {dashboard.statusBars.map(({ status, label, count, percentage, color }) => (
                     <div key={status}>
                       <div className="flex items-center justify-between mb-1">
-                        <span className="text-sm text-[#475569] font-medium">{label}</span>
-                        <span className="text-sm font-medium text-[#0f172a]">{count}</span>
+                        <div className="flex items-center gap-1.5">
+                          {status === 'unverified' && (
+                            <ShieldAlert className="w-3 h-3 text-amber-500" />
+                          )}
+                          <span className={`text-sm font-medium ${status === 'unverified' ? 'text-amber-700' : 'text-[#475569]'}`}>
+                            {label}
+                          </span>
+                        </div>
+                        <span className={`text-sm font-medium ${status === 'unverified' && count > 0 ? 'text-amber-700' : 'text-[#0f172a]'}`}>
+                          {count}
+                        </span>
                       </div>
                       <div className="h-1.5 bg-[#f1f5f9] rounded-full overflow-hidden">
                         <div

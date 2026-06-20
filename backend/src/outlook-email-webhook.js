@@ -7,7 +7,7 @@ import {
   checkEmails,
   checkDuplicates,
   sendInitialMessages,
-} from './email-webhook-helpers.js';
+} from './pubsub-webhook-helpers.js';
 
 const outlookEmailWebhook = Router();
 
@@ -61,7 +61,7 @@ async function fetchOutlookMessage(accessToken, messageId) {
 }
 
 /* Normalizes a Microsoft Graph message object into the shared email format
- * expected by checkEmails() in email-webhook-helpers.js.
+ * expected by checkEmails() in pubsub-webhook-helpers.js.
  *
  * Microsoft Graph messages use a different shape than Gmail payloads, so we
  * map the relevant fields into a common structure:
