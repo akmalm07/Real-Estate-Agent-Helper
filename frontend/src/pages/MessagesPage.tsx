@@ -1,5 +1,4 @@
-import { useState, useMemo } from 'react'
-import { useApi } from '../hooks/useApi'
+import { useState, useMemo, useCallback } from 'react'
 import type { Message } from '../services/api'
 import { Card } from '../components/ui/Card'
 import { Input } from '../components/ui/Input'
@@ -11,17 +10,12 @@ import { ErrorState } from '../components/ui/ErrorState'
 import { EmptyState } from '../components/ui/EmptyState'
 import { Search, MessageSquare, Send, Mail, Phone } from 'lucide-react'
 import { formatRelativeTime, getInitials } from '../lib/utils'
-import { BACKEND_URL } from '../consts'
+import { useDashboardCache } from '../context/DashboardCacheContext'
+import { searchAndRank, getHighlightSegments, useDebounce } from '../lib/searchUtils'
 
-const MOCK_MESSAGES: Message[] = [
-  { id: 'm1', leadId: '1', leadName: 'Sarah Mitchell', direction: 'inbound', body: 'Hi, I saw the listing on Zillow and I\'m interested in scheduling a tour.', channel: 'sms', sentAt: new Date(Date.now() - 172800000).toISOString(), conversationId: 'c1' },
-  { id: 'm2', leadId: '1', leadName: 'Sarah Mitchell', direction: 'outbound', body: 'Hi Sarah! Thanks for reaching out. I\'d love to set up a tour. Are you available this weekend?', channel: 'sms', sentAt: new Date(Date.now() - 169200000).toISOString(), conversationId: 'c1' },
-  { id: 'm3', leadId: '1', leadName: 'Sarah Mitchell', direction: 'inbound', body: 'Saturday afternoon works great for me!', channel: 'sms', sentAt: new Date(Date.now() - 86400000).toISOString(), conversationId: 'c1' },
-  { id: 'm4', leadId: '2', leadName: 'James Carter', direction: 'inbound', body: 'Hello, I have a question about the property on Maple Ave.', channel: 'email', sentAt: new Date(Date.now() - 3600000).toISOString(), conversationId: 'c2' },
-  { id: 'm5', leadId: '2', leadName: 'James Carter', direction: 'outbound', body: 'Hi James! Happy to help. What would you like to know?', channel: 'email', sentAt: new Date(Date.now() - 1800000).toISOString(), conversationId: 'c2' },
-  { id: 'm6', leadId: '3', leadName: 'Emily Torres', direction: 'inbound', body: 'We\'re ready to make an offer on the Cedar Lane property!', channel: 'sms', sentAt: new Date(Date.now() - 900000).toISOString(), conversationId: 'c3' },
-  { id: 'm7', leadId: '4', leadName: 'Robert Kim', direction: 'inbound', body: 'Can you send me more details about the investment properties?', channel: 'email', sentAt: new Date(Date.now() - 7200000).toISOString(), conversationId: 'c4' },
-]
+// ---------------------------------------------------------------------------
+// Types
+// ---------------------------------------------------------------------------
 
 interface Conversation {
   id: string
@@ -33,6 +27,10 @@ interface Conversation {
   unread: boolean
 }
 
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
 function groupIntoConversations(messages: Message[]): Conversation[] {
   const convMap = new Map<string, Message[]>()
   for (const msg of messages) {
@@ -40,57 +38,109 @@ function groupIntoConversations(messages: Message[]): Conversation[] {
     if (!convMap.has(key)) convMap.set(key, [])
     convMap.get(key)!.push(msg)
   }
-  return Array.from(convMap.entries()).map(([id, msgs]) => {
-    const sorted = [...msgs].sort((a, b) => new Date(b.sentAt).getTime() - new Date(a.sentAt).getTime())
-    const last = sorted[0]
-    return {
-      id,
-      leadId: last.leadId,
-      leadName: last.leadName ?? 'Unknown',
-      lastMessage: last,
-      messages: sorted.reverse(),
-      channel: last.channel,
-      unread: last.direction === 'inbound',
-    }
-  }).sort((a, b) => new Date(b.lastMessage.sentAt).getTime() - new Date(a.lastMessage.sentAt).getTime())
+  return Array.from(convMap.entries())
+    .map(([id, msgs]) => {
+      const sorted = [...msgs].sort(
+        (a, b) => new Date(b.sentAt).getTime() - new Date(a.sentAt).getTime()
+      )
+      const last = sorted[0]
+      return {
+        id,
+        leadId:      last.leadId,
+        leadName:    last.leadName ?? 'Unknown',
+        lastMessage: last,
+        messages:    sorted.reverse(),
+        channel:     last.channel,
+        unread:      last.direction === 'inbound',
+      }
+    })
+    .sort(
+      (a, b) =>
+        new Date(b.lastMessage.sentAt).getTime() - new Date(a.lastMessage.sentAt).getTime()
+    )
 }
 
-export function MessagesPage() {
-  const { data, loading, error, refetch } = useApi<Message[]>(`${BACKEND_URL}api/messages`)
-  const [search, setSearch] = useState('')
-  const [selectedConvId, setSelectedConvId] = useState<string | null>(null)
-  const [replyText, setReplyText] = useState('')
-  const [sending, setSending] = useState(false)
-
-  const messages = data ?? MOCK_MESSAGES
-  const conversations = useMemo(() => groupIntoConversations(messages), [messages])
-
-  const filtered = conversations.filter(
-    (c) => !search || c.leadName.toLowerCase().includes(search.toLowerCase())
+function HighlightedText({ text, query }: { text: string; query: string }) {
+  const segments = getHighlightSegments(text, query)
+  return (
+    <>
+      {segments.map((seg, i) =>
+        seg.highlight ? (
+          <mark key={i} className="bg-yellow-100 text-yellow-900 rounded px-0.5">
+            {seg.text}
+          </mark>
+        ) : (
+          <span key={i}>{seg.text}</span>
+        )
+      )}
+    </>
   )
+}
 
-  const selectedConv = filtered.find((c) => c.id === selectedConvId) ?? filtered[0] ?? null
+// ---------------------------------------------------------------------------
+// Main component
+// ---------------------------------------------------------------------------
 
-  const handleSend = async () => {
+export function MessagesPage() {
+  const { messages, messagesLoading, messagesError, reload } = useDashboardCache()
+
+  const [searchRaw, setSearchRaw]           = useState('')
+  const [selectedConvId, setSelectedConvId] = useState<string | null>(null)
+  const [replyText, setReplyText]           = useState('')
+  const [sending, setSending]               = useState(false)
+
+  const search = useDebounce(searchRaw, 200)
+
+  // ── Group all messages into conversations (memoized) ─────────────────────
+  const allConversations = useMemo(() => groupIntoConversations(messages), [messages])
+
+  // ── Filter conversations by search ────────────────────────────────────────
+  const filteredConversations = useMemo(() => {
+    return searchAndRank(allConversations, search, (conv) => [
+      // Primary: lead name
+      conv.leadName,
+      // Secondary: content of all messages in the conversation
+      ...conv.messages.map((m) => m.body),
+    ])
+  }, [allConversations, search])
+
+  // ── Selected conversation ─────────────────────────────────────────────────
+  const selectedConv = useMemo(() => {
+    if (selectedConvId) {
+      const found = filteredConversations.find((c) => c.id === selectedConvId)
+      if (found) return found
+    }
+    return filteredConversations[0] ?? null
+  }, [filteredConversations, selectedConvId])
+
+  const handleSelectConv = useCallback((id: string) => {
+    setSelectedConvId(id)
+    setReplyText('')
+  }, [])
+
+  const handleSend = useCallback(async () => {
     if (!replyText.trim() || !selectedConv) return
     setSending(true)
     try {
+      // Placeholder — backend integration to be added later
       await new Promise((r) => setTimeout(r, 500))
       setReplyText('')
     } finally {
       setSending(false)
     }
-  }
+  }, [replyText, selectedConv])
 
-  if (error && !data) {
-    return <ErrorState message={error} onRetry={refetch} />
+  if (messagesError && messages.length === 0) {
+    return <ErrorState message={messagesError} onRetry={reload} />
   }
 
   return (
     <div className="space-y-5">
       <div>
         <h2 className="text-lg font-semibold text-[#0f172a]">Messages</h2>
-        <p className="text-sm text-[#94a3b8] mt-0.5">{conversations.length} conversations</p>
+        <p className="text-sm text-[#94a3b8] mt-0.5">
+          {filteredConversations.length} of {allConversations.length} conversations
+        </p>
       </div>
 
       <div className="flex gap-4 h-[calc(100vh-220px)] min-h-[500px]">
@@ -100,12 +150,13 @@ export function MessagesPage() {
             <Input
               icon={Search}
               placeholder="Search conversations..."
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
+              value={searchRaw}
+              onChange={(e) => setSearchRaw(e.target.value)}
             />
           </div>
+
           <div className="flex-1 overflow-y-auto scrollbar-thin divide-y divide-[#e5e7eb]">
-            {loading ? (
+            {messagesLoading ? (
               <div className="p-3 space-y-3">
                 {Array.from({ length: 5 }).map((_, i) => (
                   <div key={i} className="flex items-center gap-3">
@@ -117,17 +168,17 @@ export function MessagesPage() {
                   </div>
                 ))}
               </div>
-            ) : filtered.length === 0 ? (
+            ) : filteredConversations.length === 0 ? (
               <EmptyState
                 icon={MessageSquare}
                 title="No conversations"
-                description="No messages yet."
+                description={search ? 'No matches found.' : 'No messages yet.'}
               />
             ) : (
-              filtered.map((conv) => (
+              filteredConversations.map((conv) => (
                 <button
                   key={conv.id}
-                  onClick={() => setSelectedConvId(conv.id)}
+                  onClick={() => handleSelectConv(conv.id)}
                   className={`w-full flex items-start gap-3 px-3 py-3 text-left transition-colors ${
                     selectedConv?.id === conv.id
                       ? 'bg-[#eef2ff]'
@@ -147,19 +198,25 @@ export function MessagesPage() {
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center justify-between mb-0.5">
                       <span className={`text-sm truncate ${conv.unread ? 'font-semibold text-[#0f172a]' : 'font-medium text-[#475569]'}`}>
-                        {conv.leadName}
+                        <HighlightedText text={conv.leadName} query={search} />
                       </span>
                       <span className="text-[10px] text-[#94a3b8] flex-shrink-0 ml-1">
                         {formatRelativeTime(conv.lastMessage.sentAt)}
                       </span>
                     </div>
-                    <p className="text-xs text-[#94a3b8] truncate">{conv.lastMessage.body}</p>
+                    <p className="text-xs text-[#94a3b8] truncate">
+                      <HighlightedText text={conv.lastMessage.body} query={search} />
+                    </p>
                     <div className="mt-1">
                       <Badge variant={conv.channel === 'sms' ? 'indigo' : 'default'}>
                         {conv.channel === 'sms' ? (
-                          <span className="flex items-center gap-1"><Phone className="w-2.5 h-2.5" />SMS</span>
+                          <span className="flex items-center gap-1">
+                            <Phone className="w-2.5 h-2.5" />SMS
+                          </span>
                         ) : (
-                          <span className="flex items-center gap-1"><Mail className="w-2.5 h-2.5" />Email</span>
+                          <span className="flex items-center gap-1">
+                            <Mail className="w-2.5 h-2.5" />Email
+                          </span>
                         )}
                       </Badge>
                     </div>
@@ -191,7 +248,9 @@ export function MessagesPage() {
                 </div>
                 <div>
                   <p className="text-sm font-semibold text-[#0f172a]">{selectedConv.leadName}</p>
-                  <p className="text-xs text-[#94a3b8] capitalize">{selectedConv.channel} conversation</p>
+                  <p className="text-xs text-[#94a3b8] capitalize">
+                    {selectedConv.channel} conversation
+                  </p>
                 </div>
               </div>
 
@@ -209,7 +268,13 @@ export function MessagesPage() {
                           : 'bg-[#f9fafb] text-[#0f172a] border border-[#e5e7eb]'
                       }`}
                     >
-                      <p>{msg.body}</p>
+                      <p>
+                        {search ? (
+                          <HighlightedText text={msg.body} query={search} />
+                        ) : (
+                          msg.body
+                        )}
+                      </p>
                       <p
                         className={`text-[10px] mt-1 ${
                           msg.direction === 'outbound' ? 'text-indigo-200' : 'text-[#94a3b8]'

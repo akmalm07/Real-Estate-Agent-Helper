@@ -3,24 +3,6 @@
  *
  * Express router that exposes all REST API endpoints consumed by the React
  * frontend.
- *
- * Dashboard endpoint contract:
- *
- *   GET /api/dashboard?since=<value>
- *
- *   since values:
- *     1d   → last 24 hours
- *     7d   → last 7 days
- *     1m   → last 30 days  (default when param is missing)
- *     3m   → last 90 days
- *     all  → no time filter (excludes pending_deletion only)
- *     <ISO date string> → data since that exact timestamp
- *
- *   Stable (all-time) fields — never time-filtered:
- *     totalLeads, leadsByStatus, needsAttention, aiManagedLeads, totalProperties
- *
- *   Time-filtered arrays (frontend filters these by selected window):
- *     leads[], inboundMessages[], recentActivity[]
  */
 
 import { Router } from 'express';
@@ -32,18 +14,27 @@ import {
   email as emailTable,
   sms as smsTable,
   leadNotes,
+  leadTasks,
   users,
   userOnboarding,
   oauthAccounts,
-  confirmationCodes,
 } from '../db/schema.js';
 import { createToken, verifyToken } from './jwt.js';
-import { eq, desc, and, gte, ne } from 'drizzle-orm';
+import { eq, desc, ne, and, sql } from 'drizzle-orm';
 import bcrypt from 'bcryptjs';
-import { sendEmail } from './phone.js';
-import { randomInt } from 'crypto';
+import { sendEmail, sendSMS } from './phone.js';
 import jwt from 'jsonwebtoken';
 import { cookieJson } from './consts.js';
+import {
+  findOrCreateSmsConversation,
+  saveSmsMessage,
+  generateSmsReply,
+} from './sms-helpers.js';
+import {
+  findOrCreateEmailConversation,
+  sendAndSaveEmail,
+  generateEmailReply,
+} from './email-helpers.js';
 
 const frontendComRouter = Router();
 
@@ -54,12 +45,9 @@ const APP_BASE_URL = process.env.APP_BASE_URL || 'http://localhost:5173';
 // Helpers
 // ---------------------------------------------------------------------------
 
-/** Middleware: verify JWT and attach user to req.user */
 function requireAuth(req, res, next) {
   const token = req.cookies.token;
-  if (!token) {
-    return res.status(401).json({ error: 'Missing auth token' });
-  }
+  if (!token) return res.status(401).json({ error: 'Missing auth token' });
   try {
     const payload = verifyToken(token);
     req.user = payload;
@@ -69,50 +57,53 @@ function requireAuth(req, res, next) {
   }
 }
 
-/** Return a safe user object (no password hash) */
 function safeUser(user) {
   const { passwordHash, ...rest } = user;
   return rest;
 }
 
-/**
- * Resolve the `since` query parameter to a Date cutoff, or null for "all".
- *
- * Accepts:
- *   '1d'  → 24 hours ago
- *   '7d'  → 7 days ago
- *   '1m'  → 30 days ago  (default)
- *   '3m'  → 90 days ago
- *   'all' → null (no cutoff)
- *   <ISO> → parsed as a Date
- */
 function resolveSinceCutoff(sinceParam) {
   const now = Date.now();
-
-  if (!sinceParam || sinceParam === '1m') {
-    return new Date(now - 30 * 24 * 60 * 60 * 1000);
-  }
-  if (sinceParam === '1d') {
-    return new Date(now - 1 * 24 * 60 * 60 * 1000);
-  }
-  if (sinceParam === '7d') {
-    return new Date(now - 7 * 24 * 60 * 60 * 1000);
-  }
-  if (sinceParam === '3m') {
-    return new Date(now - 90 * 24 * 60 * 60 * 1000);
-  }
-  if (sinceParam === 'all') {
-    return null;
-  }
-
-  // Try parsing as ISO date string
+  if (!sinceParam || sinceParam === '1m') return new Date(now - 30 * 24 * 60 * 60 * 1000);
+  if (sinceParam === '1d')  return new Date(now - 1  * 24 * 60 * 60 * 1000);
+  if (sinceParam === '7d')  return new Date(now - 7  * 24 * 60 * 60 * 1000);
+  if (sinceParam === '3m')  return new Date(now - 90 * 24 * 60 * 60 * 1000);
+  if (sinceParam === 'all') return null;
   const parsed = new Date(sinceParam);
-  if (!isNaN(parsed.getTime())) {
-    return parsed;
-  }
-
-  // Fallback: last 30 days
+  if (!isNaN(parsed.getTime())) return parsed;
   return new Date(now - 30 * 24 * 60 * 60 * 1000);
+}
+
+/**
+ * Resolves which channel to use for initial outreach based on the agent's
+ * onboarding contactMethod preference and what contact info the lead has.
+ *
+ * Returns: 'sms' | 'email' | 'phone' | null
+ *   - 'sms'   → send via Twilio SMS
+ *   - 'email' → send via Gmail
+ *   - 'phone' → agent prefers phone calls; create task, no automated message
+ *   - null    → no contact info available
+ */
+function resolveOutreachChannel(contactMethod, lead) {
+  const hasPhone = !!lead.phone?.trim();
+  const hasEmail = !!lead.email?.trim();
+
+  switch (contactMethod) {
+    case 'sms':
+      return hasPhone ? 'sms' : null;
+
+    case 'email':
+      return hasEmail ? 'email' : null;
+
+    case 'phone':
+      return 'phone';
+
+    case 'mix':
+    default:
+      if (hasPhone) return 'sms';
+      if (hasEmail) return 'email';
+      return null;
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -121,40 +112,24 @@ function resolveSinceCutoff(sinceParam) {
 frontendComRouter.post('/auth/signup', async (req, res) => {
   try {
     const { name, email, password } = req.body ?? {};
-
     if (!name || !email || !password) {
       return res.status(400).json({ error: 'name, email, and password are required' });
     }
-
-    const existing = await db
-      .select()
-      .from(users)
-      .where(eq(users.email, email.toLowerCase().trim()))
-      .limit(1);
-
+    const existing = await db.select().from(users).where(eq(users.email, email.toLowerCase().trim())).limit(1);
     if (existing.length > 0) {
-      return res.status(409).json({
-        error: 'An account with that email already exists. Try Google or Microsoft sign-in.',
-      });
+      return res.status(409).json({ error: 'An account with that email already exists. Try Google or Microsoft sign-in.' });
     }
-
     const passwordHash = await bcrypt.hash(password, 12);
-
-    const [newUser] = await db
-      .insert(users)
-      .values({
-        name: name.trim(),
-        email: email.toLowerCase().trim(),
-        passwordHash,
-        source: 'manual',
-        emailConfirmed: false,
-        onboardComplete: false,
-      })
-      .returning();
-
+    const [newUser] = await db.insert(users).values({
+      name: name.trim(),
+      email: email.toLowerCase().trim(),
+      passwordHash,
+      source: 'manual',
+      emailConfirmed: false,
+      onboardComplete: false,
+    }).returning();
     const token = createToken(newUser.id);
     res.cookie('token', token, cookieJson);
-
     return res.status(201).json({ user: safeUser(newUser) });
   } catch (err) {
     console.error('POST /api/auth/signup error:', err);
@@ -168,34 +143,16 @@ frontendComRouter.post('/auth/signup', async (req, res) => {
 frontendComRouter.post('/auth/login', async (req, res) => {
   try {
     const { email, password } = req.body ?? {};
-
-    if (!email || !password) {
-      return res.status(400).json({ error: 'email and password are required' });
-    }
-
-    const [user] = await db
-      .select()
-      .from(users)
-      .where(eq(users.email, email.toLowerCase().trim()))
-      .limit(1);
-
-    if (!user) {
-      return res.status(401).json({ error: 'No account found with that email address.' });
-    }
+    if (!email || !password) return res.status(400).json({ error: 'email and password are required' });
+    const [user] = await db.select().from(users).where(eq(users.email, email.toLowerCase().trim())).limit(1);
+    if (!user) return res.status(401).json({ error: 'No account found with that email address.' });
     if (!user.passwordHash || user.source !== 'manual') {
-      return res.status(400).json({
-        error: 'This account uses Google or Microsoft sign-in. Please use those buttons instead.',
-      });
+      return res.status(400).json({ error: 'This account uses Google or Microsoft sign-in. Please use those buttons instead.' });
     }
-
     const valid = await bcrypt.compare(password, user.passwordHash);
-    if (!valid) {
-      return res.status(401).json({ error: 'Incorrect password. Please try again.' });
-    }
-
+    if (!valid) return res.status(401).json({ error: 'Incorrect password. Please try again.' });
     const token = createToken(user.id);
     res.cookie('token', token, cookieJson);
-
     return res.json({ user: safeUser(user) });
   } catch (err) {
     console.error('POST /api/auth/login error:', err);
@@ -216,14 +173,8 @@ frontendComRouter.post('/auth/logout', requireAuth, async (req, res) => {
 // ---------------------------------------------------------------------------
 frontendComRouter.get('/auth/me', requireAuth, async (req, res) => {
   try {
-    const [user] = await db
-      .select()
-      .from(users)
-      .where(eq(users.id, req.user.id))
-      .limit(1);
-
+    const [user] = await db.select().from(users).where(eq(users.id, req.user.id)).limit(1);
     if (!user) return res.status(404).json({ error: 'User not found' });
-
     return res.json({ user: safeUser(user) });
   } catch (err) {
     console.error('GET /api/auth/me error:', err);
@@ -232,46 +183,26 @@ frontendComRouter.get('/auth/me', requireAuth, async (req, res) => {
 });
 
 // ---------------------------------------------------------------------------
-// Auth — POST /api/auth/change-password  (request reset link)
+// Auth — POST /api/auth/change-password
 // ---------------------------------------------------------------------------
 frontendComRouter.post('/auth/change-password', async (req, res) => {
   try {
     const { email } = req.body ?? {};
     if (!email) return res.status(400).json({ error: 'email is required.' });
-
-    const [user] = await db
-      .select()
-      .from(users)
-      .where(eq(users.email, email.toLowerCase().trim()))
-      .limit(1);
-
-    const genericOk = {
-      message: 'If an account with that email exists, a password reset link has been sent.',
-    };
-
-    if (!user || !user.passwordHash || user.source !== 'manual') {
-      return res.status(200).json(genericOk);
-    }
-
+    const [user] = await db.select().from(users).where(eq(users.email, email.toLowerCase().trim())).limit(1);
+    const genericOk = { message: 'If an account with that email exists, a password reset link has been sent.' };
+    if (!user || !user.passwordHash || user.source !== 'manual') return res.status(200).json(genericOk);
     const resetToken = jwt.sign(
       { userId: user.id, email: user.email, purpose: 'password_reset' },
       PASSWORD_RESET_SECRET,
       { expiresIn: process.env.TEMP_TOKEN_EXPIRATION }
     );
-
     const resetLink = `${APP_BASE_URL}/change-password?token=${resetToken}&changePassword=true`;
-
     sendEmail(
       user.email,
       'Reset your RealCRM password',
-      `<h1>Password Reset Request</h1>
-      <p>Hi ${user.name ?? 'there'},</p>
-      <p>Click the link below to set a new password. This link expires in <strong>15 minutes</strong>.</p>
-      <p><a href="${resetLink}" style="background:#4f46e5;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;display:inline-block;">Reset My Password</a></p>
-      <p>If the button doesn't work, copy and paste this URL:<br>${resetLink}</p>
-      <p>If you did not request this, you can safely ignore this email.</p>`
+      `<h1>Password Reset Request</h1><p>Hi ${user.name ?? 'there'},</p><p>Click the link below to set a new password. This link expires in <strong>15 minutes</strong>.</p><p><a href="${resetLink}" style="background:#4f46e5;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;display:inline-block;">Reset My Password</a></p><p>If you did not request this, you can safely ignore this email.</p>`
     ).catch((err) => console.error('Password reset email failed:', err));
-
     return res.status(200).json(genericOk);
   } catch (err) {
     console.error('POST /api/auth/change-password error:', err);
@@ -285,53 +216,27 @@ frontendComRouter.post('/auth/change-password', async (req, res) => {
 frontendComRouter.post('/auth/change-password/confirm', async (req, res) => {
   try {
     const { token, newPassword } = req.body ?? {};
-
-    if (!token || !newPassword) {
-      return res.status(400).json({ error: 'token and newPassword are required.' });
-    }
-    if (newPassword.length < 8) {
-      return res.status(400).json({ error: 'New password must be at least 8 characters long.' });
-    }
-
+    if (!token || !newPassword) return res.status(400).json({ error: 'token and newPassword are required.' });
+    if (newPassword.length < 8) return res.status(400).json({ error: 'New password must be at least 8 characters long.' });
     let payload;
     try {
       payload = jwt.verify(token, PASSWORD_RESET_SECRET);
     } catch {
-      return res.status(400).json({
-        error: 'This reset link is invalid or has expired. Please request a new one.',
-      });
+      return res.status(400).json({ error: 'This reset link is invalid or has expired. Please request a new one.' });
     }
-
-    if (payload.purpose !== 'password_reset') {
-      return res.status(400).json({ error: 'Invalid reset token.' });
-    }
-
-    const [user] = await db
-      .select()
-      .from(users)
-      .where(eq(users.id, payload.userId))
-      .limit(1);
-
+    if (payload.purpose !== 'password_reset') return res.status(400).json({ error: 'Invalid reset token.' });
+    const [user] = await db.select().from(users).where(eq(users.id, payload.userId)).limit(1);
     if (!user) return res.status(404).json({ error: 'User not found.' });
-
     if (!user.passwordHash || user.source !== 'manual') {
-      return res.status(400).json({
-        error: 'This account uses Google or Microsoft sign-in and does not have a password.',
-      });
+      return res.status(400).json({ error: 'This account uses Google or Microsoft sign-in and does not have a password.' });
     }
-
     const newPasswordHash = await bcrypt.hash(newPassword, 12);
     await db.update(users).set({ passwordHash: newPasswordHash }).where(eq(users.id, user.id));
-
     sendEmail(
       user.email,
       'Your RealCRM password has been changed',
-      `<h1>Password Changed</h1>
-      <p>Hi ${user.name ?? 'there'},</p>
-      <p>Your RealCRM account password was just changed successfully.</p>
-      <p>If you did not make this change, please contact support immediately.</p>`
+      `<h1>Password Changed</h1><p>Hi ${user.name ?? 'there'},</p><p>Your RealCRM account password was just changed successfully.</p><p>If you did not make this change, please contact support immediately.</p>`
     ).catch((err) => console.error('Password change notification email failed:', err));
-
     return res.status(200).json({ message: 'Password changed successfully.' });
   } catch (err) {
     console.error('POST /api/auth/change-password/confirm error:', err);
@@ -344,17 +249,11 @@ frontendComRouter.post('/auth/change-password/confirm', async (req, res) => {
 // ---------------------------------------------------------------------------
 frontendComRouter.post('/settings/preferences', requireAuth, async (req, res) => {
   const { newLeadNotify, newMessageReplyNotify, weeklySummeryNotify } = req.body;
-
   if (!newLeadNotify && !newMessageReplyNotify && !weeklySummeryNotify) {
     return res.status(400).json({ error: 'Invalid data' });
   }
-
   try {
-    await db
-      .update(users)
-      .set({ newLeadNotify, newMessageReplyNotify, weeklySummeryNotify })
-      .where(eq(users.id, req.user.id));
-
+    await db.update(users).set({ newLeadNotify, newMessageReplyNotify, weeklySummeryNotify }).where(eq(users.id, req.user.id));
     return res.json({ success: true });
   } catch (err) {
     console.error(err);
@@ -370,14 +269,8 @@ frontendComRouter.get('/onboarding', requireAuth, async (req, res) => {
     const [oauthRow] = await db
       .select({ id: oauthAccounts.id })
       .from(oauthAccounts)
-      .where(
-        and(
-          eq(oauthAccounts.userId, req.user.id),
-          eq(oauthAccounts.provider, 'google')
-        )
-      )
+      .where(and(eq(oauthAccounts.userId, req.user.id), eq(oauthAccounts.provider, 'google')))
       .limit(1);
-
     return res.json({ gmailConnected: !!oauthRow });
   } catch (err) {
     console.error('GET /api/onboarding error:', err);
@@ -391,69 +284,29 @@ frontendComRouter.get('/onboarding', requireAuth, async (req, res) => {
 frontendComRouter.post('/onboarding', requireAuth, async (req, res) => {
   try {
     const {
-      brokerage,
-      primaryMarket,
-      leadsPerMonth,
-      leadSources,
-      leadSourceOther,
-      contactMethod,
-      teamSize,
-      biggestChallenge,
-      completed,
+      brokerage, primaryMarket, leadsPerMonth, leadSources,
+      leadSourceOther, contactMethod, teamSize, biggestChallenge, completed,
     } = req.body ?? {};
 
-    if (completed !== true) {
-      return res.status(400).json({
-        error: 'Onboarding must be submitted as a single complete bundle (completed=true).',
-      });
-    }
-    if (!primaryMarket?.trim()) {
-      return res.status(400).json({ error: 'primaryMarket is required.' });
-    }
+    if (completed !== true) return res.status(400).json({ error: 'Onboarding must be submitted as a single complete bundle (completed=true).' });
+    if (!primaryMarket?.trim()) return res.status(400).json({ error: 'primaryMarket is required.' });
 
     const validLeadsPerMonth = ['0_25', '25_50', '50_100', '100_plus'];
-    if (!validLeadsPerMonth.includes(leadsPerMonth)) {
-      return res.status(400).json({
-        error: `leadsPerMonth must be one of: ${validLeadsPerMonth.join(', ')}`,
-      });
-    }
-
-    if (!Array.isArray(leadSources) || leadSources.length === 0) {
-      return res.status(400).json({ error: 'leadSources must be a non-empty array.' });
-    }
-
+    if (!validLeadsPerMonth.includes(leadsPerMonth)) return res.status(400).json({ error: `leadsPerMonth must be one of: ${validLeadsPerMonth.join(', ')}` });
+    if (!Array.isArray(leadSources) || leadSources.length === 0) return res.status(400).json({ error: 'leadSources must be a non-empty array.' });
     if (leadSources.includes('other')) {
-      if (!leadSourceOther?.trim()) {
-        return res.status(400).json({ error: 'leadSourceOther is required when "other" is selected.' });
-      }
-      if (leadSourceOther.length > 50) {
-        return res.status(400).json({ error: 'leadSourceOther must be 50 characters or fewer.' });
-      }
+      if (!leadSourceOther?.trim()) return res.status(400).json({ error: 'leadSourceOther is required when "other" is selected.' });
+      if (leadSourceOther.length > 50) return res.status(400).json({ error: 'leadSourceOther must be 50 characters or fewer.' });
     }
 
-    const validContactMethods = ['sms', 'email', 'mix'];
-    if (!validContactMethods.includes(contactMethod)) {
-      return res.status(400).json({
-        error: `contactMethod must be one of: ${validContactMethods.join(', ')}`,
-      });
-    }
+    const validContactMethods = ['sms', 'email', 'mix', 'phone'];
+    if (!validContactMethods.includes(contactMethod)) return res.status(400).json({ error: `contactMethod must be one of: ${validContactMethods.join(', ')}` });
 
     const validTeamSizes = ['just_me', '2_5', '6_20', '20_plus'];
-    if (!validTeamSizes.includes(teamSize)) {
-      return res.status(400).json({
-        error: `teamSize must be one of: ${validTeamSizes.join(', ')}`,
-      });
-    }
+    if (!validTeamSizes.includes(teamSize)) return res.status(400).json({ error: `teamSize must be one of: ${validTeamSizes.join(', ')}` });
 
-    const validChallenges = [
-      'following_up', 'too_many_leads', 'leads_go_cold',
-      'organizing_conversations', 'tracking_appointments', 'converting_leads',
-    ];
-    if (!validChallenges.includes(biggestChallenge)) {
-      return res.status(400).json({
-        error: `biggestChallenge must be one of: ${validChallenges.join(', ')}`,
-      });
-    }
+    const validChallenges = ['following_up', 'too_many_leads', 'leads_go_cold', 'organizing_conversations', 'tracking_appointments', 'converting_leads'];
+    if (!validChallenges.includes(biggestChallenge)) return res.status(400).json({ error: `biggestChallenge must be one of: ${validChallenges.join(', ')}` });
 
     const now = new Date();
     const values = {
@@ -471,28 +324,23 @@ frontendComRouter.post('/onboarding', requireAuth, async (req, res) => {
       completedAt: now,
     };
 
-    const [row] = await db
-      .insert(userOnboarding)
-      .values(values)
-      .onConflictDoUpdate({
-        target: userOnboarding.userId,
-        set: {
-          brokerage: values.brokerage,
-          primaryMarket: values.primaryMarket,
-          leadsPerMonth: values.leadsPerMonth,
-          leadSources: values.leadSources,
-          leadSourceOther: values.leadSourceOther,
-          contactMethod: values.contactMethod,
-          teamSize: values.teamSize,
-          biggestChallenge: values.biggestChallenge,
-          updatedAt: now,
-          completedAt: now,
-        },
-      })
-      .returning();
+    const [row] = await db.insert(userOnboarding).values(values).onConflictDoUpdate({
+      target: userOnboarding.userId,
+      set: {
+        brokerage: values.brokerage,
+        primaryMarket: values.primaryMarket,
+        leadsPerMonth: values.leadsPerMonth,
+        leadSources: values.leadSources,
+        leadSourceOther: values.leadSourceOther,
+        contactMethod: values.contactMethod,
+        teamSize: values.teamSize,
+        biggestChallenge: values.biggestChallenge,
+        updatedAt: now,
+        completedAt: now,
+      },
+    }).returning();
 
     await db.update(users).set({ onboardComplete: true }).where(eq(users.id, req.user.id));
-
     return res.status(200).json({ onboarding: row });
   } catch (err) {
     console.error('POST /api/onboarding error:', err);
@@ -502,75 +350,35 @@ frontendComRouter.post('/onboarding', requireAuth, async (req, res) => {
 
 // ---------------------------------------------------------------------------
 // Dashboard — GET /api/dashboard?since=<value>
-//
-// Returns:
-//
-//  Stable (all-time, never time-filtered):
-//    totalLeads          — count of all visible leads (excl. pending_deletion)
-//    leadsByStatus       — per-status counts (excl. pending_deletion)
-//    needsAttention      — leads with inbound msg but no outbound in last 24h
-//    aiManagedLeads      — leads where AI is still active
-//    totalProperties     — count of all properties
-//
-//  Time-filtered arrays (frontend re-filters these by selected window):
-//    leads[]             — visible leads created since `since`
-//    inboundMessages[]   — inbound SMS + email since `since`
-//    recentActivity[]    — activity items since `since`
-//
-//  Metadata:
-//    fetchedAt           — ISO timestamp
 // ---------------------------------------------------------------------------
 frontendComRouter.get('/dashboard', requireAuth, async (req, res) => {
   try {
     const userId = req.user.id;
     const now    = new Date();
     const twentyFourHoursAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000);
-
-    // Resolve the since cutoff from the query param
     const sinceCutoff = resolveSinceCutoff(req.query.since);
 
-    // ── 1. All visible leads (all-time, excl. pending_deletion) ──────────
-    const allLeadsRaw = await db
-      .select()
-      .from(leads)
-      .where(eq(leads.userId, userId));
-
-    const visibleLeads = allLeadsRaw.filter((l) => l.status !== 'pending_deletion');
+    const allLeadsRaw = await db.select().from(leads).where(eq(leads.userId, userId));
+    const visibleLeads   = allLeadsRaw.filter((l) => l.status !== 'pending_deletion');
     const visibleLeadIds = visibleLeads.map((l) => l.id);
 
-    // ── 2. Stable KPIs ────────────────────────────────────────────────────
-
-    // leadsByStatus — all-time
     const STATUS_LIST = ['new', 'active', 'cold', 'converted'];
     const leadsByStatus = STATUS_LIST.map((status) => ({
       status,
       count: visibleLeads.filter((l) => l.status === status).length,
     }));
 
-    // aiManagedLeads — leads where AI is still active (not converted/disabled)
-    // Treat any lead that is NOT 'converted' and NOT 'cold' as AI-managed.
-    // Adjust this logic if you have an explicit aiEnabled field.
-    const aiManagedLeads = visibleLeads.filter(
-      (l) => l.status === 'new' || l.status === 'active'
-    ).length;
+    const aiManagedLeads = visibleLeads.filter((l) => l.aiEnabled === true).length;
 
-    // ── 3. Properties ─────────────────────────────────────────────────────
-    const allProperties = await db
-      .select({ id: properties.id })
-      .from(properties)
-      .where(eq(properties.userId, userId));
+    const allProperties = await db.select({ id: properties.id }).from(properties).where(eq(properties.userId, userId));
 
-    // ── 4. Conversations for this user's leads ────────────────────────────
-    // We fetch all conversations and filter in JS to avoid needing inArray.
     let userConversations = [];
     if (visibleLeadIds.length > 0) {
       const allConvs = await db.select().from(conversations);
       userConversations = allConvs.filter((c) => visibleLeadIds.includes(c.leadId));
     }
 
-    const userConvIds = userConversations.map((c) => c.id);
-
-    // Build lookup maps
+    const userConvIds    = userConversations.map((c) => c.id);
     const convToLeadId   = {};
     const convToLeadName = {};
     userConversations.forEach((c) => {
@@ -579,52 +387,17 @@ frontendComRouter.get('/dashboard', requireAuth, async (req, res) => {
       convToLeadName[c.id] = lead?.name || null;
     });
 
-    // ── 5. Messages ───────────────────────────────────────────────────────
-    // Fetch all SMS and email for user's conversations.
-    // We fetch all and filter in JS so we can reuse for both
-    // the time-windowed arrays AND the needs-attention calculation.
-
-    let allSms    = [];
-    let allEmails = [];
-
+    let allSms = [], allEmails = [];
     if (userConvIds.length > 0) {
-      const rawSms = await db
-        .select({
-          id:             smsTable.id,
-          conversationId: smsTable.conversationId,
-          direction:      smsTable.direction,
-          body:           smsTable.body,
-          sentAt:         smsTable.sentAt,
-        })
-        .from(smsTable)
-        .orderBy(desc(smsTable.sentAt));
-
+      const rawSms = await db.select({ id: smsTable.id, conversationId: smsTable.conversationId, direction: smsTable.direction, body: smsTable.body, sentAt: smsTable.sentAt }).from(smsTable).orderBy(desc(smsTable.sentAt));
       allSms = rawSms.filter((m) => userConvIds.includes(m.conversationId));
-
-      const rawEmails = await db
-        .select({
-          id:             emailTable.id,
-          conversationId: emailTable.conversationId,
-          direction:      emailTable.direction,
-          body:           emailTable.body,
-          sentAt:         emailTable.sentAt,
-        })
-        .from(emailTable)
-        .orderBy(desc(emailTable.sentAt));
-
+      const rawEmails = await db.select({ id: emailTable.id, conversationId: emailTable.conversationId, direction: emailTable.direction, body: emailTable.body, sentAt: emailTable.sentAt }).from(emailTable).orderBy(desc(emailTable.sentAt));
       allEmails = rawEmails.filter((m) => userConvIds.includes(m.conversationId));
     }
 
-    // ── 6. Needs Attention (always last 24h, ignores since param) ─────────
-    // A lead needs attention if:
-    //   - has at least one inbound message (any time)
-    //   - AND has NO outbound message in the last 24 hours
-    const attentionMap = {};
-
-    const allInbound  = [...allSms, ...allEmails].filter((m) => m.direction === 'inbound');
-    const recentOutbound = [...allSms, ...allEmails].filter(
-      (m) => m.direction === 'outbound' && new Date(m.sentAt) >= twentyFourHoursAgo
-    );
+    const attentionMap   = {};
+    const allInbound     = [...allSms, ...allEmails].filter((m) => m.direction === 'inbound');
+    const recentOutbound = [...allSms, ...allEmails].filter((m) => m.direction === 'outbound' && new Date(m.sentAt) >= twentyFourHoursAgo);
 
     allInbound.forEach((m) => {
       const leadId = convToLeadId[m.conversationId];
@@ -632,7 +405,6 @@ frontendComRouter.get('/dashboard', requireAuth, async (req, res) => {
       if (!attentionMap[leadId]) attentionMap[leadId] = { hasInbound: false, hasRecentOutbound: false };
       attentionMap[leadId].hasInbound = true;
     });
-
     recentOutbound.forEach((m) => {
       const leadId = convToLeadId[m.conversationId];
       if (leadId == null) return;
@@ -640,23 +412,11 @@ frontendComRouter.get('/dashboard', requireAuth, async (req, res) => {
       attentionMap[leadId].hasRecentOutbound = true;
     });
 
-    const needsAttention = Object.values(attentionMap).filter(
-      (v) => v.hasInbound && !v.hasRecentOutbound
-    ).length;
+    const needsAttention = Object.values(attentionMap).filter((v) => v.hasInbound && !v.hasRecentOutbound).length;
 
-    // ── 7. Time-filtered arrays ───────────────────────────────────────────
-    // These are filtered by sinceCutoff. The frontend will re-filter
-    // client-side when the user changes the time window dropdown.
+    const leadsInWindow   = sinceCutoff ? visibleLeads.filter((l) => new Date(l.createdAt) >= sinceCutoff) : visibleLeads;
+    const inboundInWindow = sinceCutoff ? allInbound.filter((m) => new Date(m.sentAt) >= sinceCutoff) : allInbound;
 
-    const leadsInWindow = sinceCutoff
-      ? visibleLeads.filter((l) => new Date(l.createdAt) >= sinceCutoff)
-      : visibleLeads;
-
-    const inboundInWindow = sinceCutoff
-      ? allInbound.filter((m) => new Date(m.sentAt) >= sinceCutoff)
-      : allInbound;
-
-    // Shape inbound messages for the frontend
     const inboundMessages = inboundInWindow.map((m) => ({
       id:        String(m.id),
       direction: m.direction,
@@ -665,17 +425,14 @@ frontendComRouter.get('/dashboard', requireAuth, async (req, res) => {
       channel:   allSms.some((s) => s.id === m.id) ? 'sms' : 'email',
     }));
 
-    // Shape leads for the frontend
     const leadsForFrontend = leadsInWindow.map((l) => ({
       id:        l.id,
       status:    l.status,
+      aiEnabled: l.aiEnabled,
       createdAt: l.createdAt instanceof Date ? l.createdAt.toISOString() : l.createdAt,
       name:      l.name || null,
       source:    l.source || null,
     }));
-
-    // ── 8. Recent Activity ────────────────────────────────────────────────
-    // Combine lead creations + messages into a unified activity feed.
 
     const leadActivity = leadsInWindow.map((l) => ({
       id:          `lead_${l.id}`,
@@ -685,18 +442,13 @@ frontendComRouter.get('/dashboard', requireAuth, async (req, res) => {
       leadName:    l.name || null,
     }));
 
-    const allMessagesInWindow = sinceCutoff
-      ? [...allSms, ...allEmails].filter((m) => new Date(m.sentAt) >= sinceCutoff)
-      : [...allSms, ...allEmails];
-
+    const allMessagesInWindow = sinceCutoff ? [...allSms, ...allEmails].filter((m) => new Date(m.sentAt) >= sinceCutoff) : [...allSms, ...allEmails];
     const messageActivity = allMessagesInWindow.map((m) => {
       const isSms = allSms.some((s) => s.id === m.id);
       return {
         id:          `${isSms ? 'sms' : 'email'}_${m.id}`,
         type:        m.direction === 'inbound' ? 'message_received' : 'message_sent',
-        description: m.direction === 'inbound'
-          ? `${isSms ? 'SMS' : 'Email'} received`
-          : `AI replied via ${isSms ? 'SMS' : 'email'}`,
+        description: m.direction === 'inbound' ? `${isSms ? 'SMS' : 'Email'} received` : `AI replied via ${isSms ? 'SMS' : 'email'}`,
         timestamp:   m.sentAt instanceof Date ? m.sentAt.toISOString() : m.sentAt,
         leadName:    convToLeadName[m.conversationId] || null,
       };
@@ -704,23 +456,17 @@ frontendComRouter.get('/dashboard', requireAuth, async (req, res) => {
 
     const recentActivity = [...leadActivity, ...messageActivity]
       .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp))
-      .slice(0, 100); // send up to 100; frontend will slice to 30 after filtering
+      .slice(0, 100);
 
-    // ── 9. Respond ────────────────────────────────────────────────────────
     return res.json({
-      // Stable all-time values
-      totalLeads:      visibleLeads.length,
+      totalLeads: visibleLeads.length,
       leadsByStatus,
       needsAttention,
       aiManagedLeads,
       totalProperties: allProperties.length,
-
-      // Time-windowed arrays
       leads:            leadsForFrontend,
       inboundMessages,
       recentActivity,
-
-      // Metadata
       fetchedAt: now.toISOString(),
     });
   } catch (err) {
@@ -734,12 +480,7 @@ frontendComRouter.get('/dashboard', requireAuth, async (req, res) => {
 // ---------------------------------------------------------------------------
 frontendComRouter.get('/leads', requireAuth, async (req, res) => {
   try {
-    const rows = await db
-      .select()
-      .from(leads)
-      .where(eq(leads.userId, req.user.id))
-      .orderBy(desc(leads.updatedAt));
-
+    const rows = await db.select().from(leads).where(eq(leads.userId, req.user.id)).orderBy(desc(leads.updatedAt));
     return res.json(rows);
   } catch (err) {
     console.error('GET /api/leads error:', err);
@@ -748,56 +489,350 @@ frontendComRouter.get('/leads', requireAuth, async (req, res) => {
 });
 
 // ---------------------------------------------------------------------------
-// Leads — GET /api/leads/:id  (with notes + messages)
+// Leads — GET /api/leads/:id
 // ---------------------------------------------------------------------------
 frontendComRouter.get('/leads/:id', requireAuth, async (req, res) => {
   try {
     const leadId = Number(req.params.id);
+    const [lead] = await db.select().from(leads).where(and(eq(leads.id, leadId), eq(leads.userId, req.user.id))).limit(1);
+    if (!lead) return res.status(404).json({ error: 'Lead not found' });
 
+    const notes = await db.select().from(leadNotes).where(eq(leadNotes.leadId, leadId)).orderBy(desc(leadNotes.createdAt));
+    const leadConversations = await db.select().from(conversations).where(eq(conversations.leadId, leadId));
+
+    let allMessages = [];
+    for (const conv of leadConversations) {
+      if (conv.type === 'sms') {
+        const msgs = await db.select().from(smsTable).where(eq(smsTable.conversationId, conv.id)).orderBy(smsTable.sentAt);
+        allMessages = allMessages.concat(msgs.map((m) => ({ ...m, channel: 'sms' })));
+      } else if (conv.type === 'email') {
+        const msgs = await db.select().from(emailTable).where(eq(emailTable.conversationId, conv.id)).orderBy(emailTable.sentAt);
+        allMessages = allMessages.concat(msgs.map((m) => ({ ...m, channel: 'email' })));
+      }
+    }
+    allMessages.sort((a, b) => new Date(a.sentAt) - new Date(b.sentAt));
+    return res.json({ ...lead, notes, messages: allMessages });
+  } catch (err) {
+    console.error('GET /api/leads/:id error:', err);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Leads — POST /api/leads  (Refer a Lead)
+// ---------------------------------------------------------------------------
+frontendComRouter.post('/leads', requireAuth, async (req, res) => {
+  try {
+    const { name, email, phone, source, sourceId, propertyId, notes: initialNote } = req.body ?? {};
+
+    if (!name?.trim()) return res.status(400).json({ error: 'name is required.' });
+
+    const validSources   = ['zillow', 'realtor', 'referral', 'unknown'];
+    const resolvedSource = validSources.includes(source) ? source : 'referral';
+
+    if (!email?.trim() && !phone?.trim()) {
+      return res.status(400).json({ error: 'At least one contact method (email or phone) is required.' });
+    }
+    if (email?.trim()) {
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if (!emailRegex.test(email.trim())) return res.status(400).json({ error: 'Invalid email address format.' });
+    }
+
+    let resolvedPropertyId = null;
+    if (propertyId) {
+      const [prop] = await db.select({ id: properties.id }).from(properties).where(and(eq(properties.id, Number(propertyId)), eq(properties.userId, req.user.id))).limit(1);
+      if (!prop) return res.status(400).json({ error: 'Property not found or does not belong to you.' });
+      resolvedPropertyId = prop.id;
+    }
+
+    const [newLead] = await db.insert(leads).values({
+      userId:     req.user.id,
+      name:       name.trim(),
+      email:      email?.trim() || null,
+      phone:      phone?.trim() || null,
+      source:     resolvedSource,
+      sourceId:   sourceId?.trim() || null,
+      propertyId: resolvedPropertyId,
+      status:     'active',
+      aiEnabled:  true,
+    }).returning();
+
+    if (initialNote?.trim()) {
+      await db.insert(leadNotes).values({ leadId: newLead.id, note: initialNote.trim() });
+    }
+
+    return res.status(201).json(newLead);
+  } catch (err) {
+    console.error('POST /api/leads error:', err);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Leads — POST /api/leads/:id/send-initial
+//
+// Handles all three outreach modes:
+//   mode = 'ai'     → AI generates and sends message immediately
+//   mode = 'custom' → Agent's message sent as-is
+//   mode = 'none'   → No message sent; conversation created; task created if phone preferred
+//
+// Channel is resolved from the agent's onboarding contactMethod preference.
+// Lead preservation is the highest priority — messaging failures are non-fatal.
+// ---------------------------------------------------------------------------
+frontendComRouter.post('/leads/:id/send-initial', requireAuth, async (req, res) => {
+  try {
+    const leadId = Number(req.params.id);
+    const {
+      mode = 'ai',          // 'ai' | 'custom' | 'none'
+      customMessage,        // string | null — required when mode = 'custom'
+      customSubject,        // string | null — required when mode = 'custom' + email channel
+    } = req.body ?? {};
+
+    // ── Load lead ─────────────────────────────────────────────────────────
     const [lead] = await db
       .select()
       .from(leads)
       .where(and(eq(leads.id, leadId), eq(leads.userId, req.user.id)))
       .limit(1);
 
-    if (!lead) return res.status(404).json({ error: 'Lead not found' });
+    if (!lead) return res.status(404).json({ error: 'Lead not found.' });
 
-    const notes = await db
+    // ── Load agent context ────────────────────────────────────────────────
+    const [agentUser] = await db
       .select()
-      .from(leadNotes)
-      .where(eq(leadNotes.leadId, leadId))
-      .orderBy(desc(leadNotes.createdAt));
+      .from(users)
+      .where(eq(users.id, req.user.id))
+      .limit(1);
 
-    const leadConversations = await db
+    const [onboarding] = await db
       .select()
-      .from(conversations)
-      .where(eq(conversations.leadId, leadId));
+      .from(userOnboarding)
+      .where(eq(userOnboarding.userId, req.user.id))
+      .limit(1);
 
-    let allMessages = [];
+    const [oauthRow] = await db
+      .select()
+      .from(oauthAccounts)
+      .where(and(eq(oauthAccounts.userId, req.user.id), eq(oauthAccounts.provider, 'google')))
+      .limit(1);
 
-    for (const conv of leadConversations) {
-      if (conv.type === 'sms') {
-        const msgs = await db
-          .select()
-          .from(smsTable)
-          .where(eq(smsTable.conversationId, conv.id))
-          .orderBy(smsTable.sentAt);
-        allMessages = allMessages.concat(msgs.map((m) => ({ ...m, channel: 'sms' })));
-      } else if (conv.type === 'email') {
-        const msgs = await db
-          .select()
-          .from(emailTable)
-          .where(eq(emailTable.conversationId, conv.id))
-          .orderBy(emailTable.sentAt);
-        allMessages = allMessages.concat(msgs.map((m) => ({ ...m, channel: 'email' })));
+    // contactMethod defaults to 'mix' if onboarding not completed
+    const contactMethod = onboarding?.contactMethod ?? 'mix';
+    const channel = resolveOutreachChannel(contactMethod, lead);
+
+    // ── Mode: none — create conversation/task only, no message ───────────
+    if (mode === 'none') {
+      // Still create a conversation record so the agent can message later
+      if (lead.phone || lead.email) {
+        const convType = lead.phone ? 'sms' : 'email';
+        if (convType === 'sms') {
+          await findOrCreateSmsConversation(lead.id, lead.phone, process.env.TWILIO_PHONE_NUMBER);
+        } else {
+          await findOrCreateEmailConversation(lead.id, agentUser.email, [lead.email], null, null, null);
+        }
+      }
+      return res.json({ channel: null, mode: 'none', message: null });
+    }
+
+    // ── Phone preference — create task, no automated message ─────────────
+    if (channel === 'phone') {
+      // Create a phone call follow-up task
+      await db.insert(leadTasks).values({
+        leadId: lead.id,
+        title:  `📞 Call ${lead.name ?? 'lead'} — manual phone outreach required`,
+        dueDate: null,
+      });
+
+      return res.json({
+        channel: 'phone',
+        mode:    'task_created',
+        message: null,
+        warning: 'Your contact preference is set to phone calls. A follow-up task has been created.',
+      });
+    }
+
+    // ── No contact info available ─────────────────────────────────────────
+    if (!channel) {
+      return res.json({
+        channel: null,
+        mode:    'no_contact',
+        message: null,
+        warning: 'Lead has no phone or email matching your contact preference. Add contact info to send a message.',
+      });
+    }
+
+    // ── SMS outreach ──────────────────────────────────────────────────────
+    if (channel === 'sms') {
+      const agentPhone = process.env.TWILIO_PHONE_NUMBER;
+      const conversation = await findOrCreateSmsConversation(lead.id, lead.phone, agentPhone);
+
+      let messageBody;
+
+      if (mode === 'ai') {
+        const { reply } = await generateSmsReply(lead, conversation, '', null, [], []);
+        messageBody = reply;
+      } else {
+        // mode === 'custom'
+        if (!customMessage?.trim()) {
+          return res.status(400).json({ error: 'customMessage is required when mode is "custom".' });
+        }
+        messageBody = customMessage.trim();
+      }
+
+      // Send — non-fatal if Twilio fails
+      try {
+        await sendSMS(lead.phone, messageBody);
+      } catch (smsErr) {
+        console.error(`Twilio SMS failed for lead ${lead.id}:`, smsErr);
+        // Save the message as attempted even if Twilio failed
+        await saveSmsMessage(conversation.id, 'outbound', messageBody, null);
+        return res.json({
+          channel:  'sms',
+          mode,
+          message:  messageBody,
+          warning:  'Message was saved but could not be delivered via SMS. Check your Twilio configuration.',
+        });
+      }
+
+      await saveSmsMessage(conversation.id, 'outbound', messageBody, null);
+
+      return res.json({ channel: 'sms', mode, message: messageBody });
+    }
+
+    // ── Email outreach ────────────────────────────────────────────────────
+    if (channel === 'email') {
+      if (!oauthRow) {
+        return res.json({
+          channel: 'email',
+          mode:    'no_gmail',
+          message: null,
+          warning: 'No Gmail account connected. Please connect Gmail in Settings to send emails. The lead has been saved.',
+        });
+      }
+
+      const agentEmail = agentUser.email;
+      const conversation = await findOrCreateEmailConversation(
+        lead.id,
+        agentEmail,
+        [lead.email],
+        null,
+        null,
+        null,
+      );
+
+      let subject, body;
+
+      if (mode === 'ai') {
+        const result = await generateEmailReply(lead, conversation, null, '', null, [], []);
+        subject = result.subject;
+        body    = result.body;
+      } else {
+        // mode === 'custom'
+        if (!customMessage?.trim()) {
+          return res.status(400).json({ error: 'customMessage is required when mode is "custom".' });
+        }
+        if (!customSubject?.trim()) {
+          return res.status(400).json({ error: 'customSubject is required when mode is "custom" and channel is email.' });
+        }
+        subject = customSubject.trim();
+        body    = customMessage.trim();
+      }
+
+      // Send — non-fatal if Gmail fails
+      try {
+        await sendAndSaveEmail(
+          oauthRow.refreshToken,
+          agentEmail,
+          lead.email,
+          subject,
+          body,
+          conversation.id,
+        );
+      } catch (emailErr) {
+        console.error(`Gmail send failed for lead ${lead.id}:`, emailErr);
+        return res.json({
+          channel: 'email',
+          mode,
+          subject,
+          message: body,
+          warning: 'Message was generated but could not be sent via Gmail. Check your Gmail connection in Settings.',
+        });
+      }
+
+      return res.json({ channel: 'email', mode, subject, message: body });
+    }
+
+    // Should never reach here
+    return res.status(500).json({ error: 'Unexpected channel resolution error.' });
+  } catch (err) {
+    console.error('POST /api/leads/:id/send-initial error:', err);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Leads — PATCH /api/leads/:id  (Edit or soft-delete)
+// ---------------------------------------------------------------------------
+frontendComRouter.patch('/leads/:id', requireAuth, async (req, res) => {
+  try {
+    const leadId = Number(req.params.id);
+
+    const [existing] = await db
+      .select()
+      .from(leads)
+      .where(and(eq(leads.id, leadId), eq(leads.userId, req.user.id)))
+      .limit(1);
+
+    if (!existing) return res.status(404).json({ error: 'Lead not found.' });
+
+    const { name, email, phone, source, sourceId, propertyId, status, aiEnabled } = req.body ?? {};
+
+    const validSources  = ['zillow', 'realtor', 'referral', 'unknown'];
+    const validStatuses = ['active', 'ready', 'archived', 'pending_deletion'];
+
+    const updates = {};
+
+    if (name      !== undefined) updates.name     = name?.trim()      || null;
+    if (email     !== undefined) updates.email    = email?.trim()     || null;
+    if (phone     !== undefined) updates.phone    = phone?.trim()     || null;
+    if (sourceId  !== undefined) updates.sourceId = sourceId?.trim()  || null;
+
+    // Allow toggling AI management independently of status
+    if (aiEnabled !== undefined) {
+      updates.aiEnabled = Boolean(aiEnabled);
+    }
+
+    if (source !== undefined) {
+      if (!validSources.includes(source)) return res.status(400).json({ error: `source must be one of: ${validSources.join(', ')}` });
+      updates.source = source;
+    }
+
+    if (status !== undefined) {
+      if (!validStatuses.includes(status)) return res.status(400).json({ error: `status must be one of: ${validStatuses.join(', ')}` });
+      updates.status = status;
+      if (status === 'pending_deletion') {
+        const deletionDate = new Date();
+        deletionDate.setDate(deletionDate.getDate() + 30);
+        updates.deletionDate = deletionDate;
       }
     }
 
-    allMessages.sort((a, b) => new Date(a.sentAt) - new Date(b.sentAt));
+    if (propertyId !== undefined) {
+      if (propertyId === null || propertyId === '') {
+        updates.propertyId = null;
+      } else {
+        const [prop] = await db.select({ id: properties.id }).from(properties).where(and(eq(properties.id, Number(propertyId)), eq(properties.userId, req.user.id))).limit(1);
+        if (!prop) return res.status(400).json({ error: 'Property not found or does not belong to you.' });
+        updates.propertyId = prop.id;
+      }
+    }
 
-    return res.json({ ...lead, notes, messages: allMessages });
+    updates.updatedAt = new Date();
+
+    const [updated] = await db.update(leads).set(updates).where(eq(leads.id, leadId)).returning();
+    return res.json(updated);
   } catch (err) {
-    console.error('GET /api/leads/:id error:', err);
+    console.error('PATCH /api/leads/:id error:', err);
     return res.status(500).json({ error: 'Internal server error' });
   }
 });
@@ -807,15 +842,138 @@ frontendComRouter.get('/leads/:id', requireAuth, async (req, res) => {
 // ---------------------------------------------------------------------------
 frontendComRouter.get('/properties', requireAuth, async (req, res) => {
   try {
-    const rows = await db
-      .select()
-      .from(properties)
-      .where(eq(properties.userId, req.user.id))
-      .orderBy(desc(properties.createdAt));
-
+    const rows = await db.select().from(properties).where(
+      and(
+        eq(properties.userId, req.user.id),
+        ne(properties.status, 'pending_deletion')
+      ))
+      .orderBy(
+        sql`CASE WHEN ${properties.status} = 'archived' THEN 1 ELSE 0 END`,
+        desc(properties.createdAt)
+      );
     return res.json(rows);
   } catch (err) {
     console.error('GET /api/properties error:', err);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Properties — POST /api/properties  (Add a Property)
+// ---------------------------------------------------------------------------
+frontendComRouter.post('/properties', requireAuth, async (req, res) => {
+  try {
+    const { addressLine1, addressLine2, description, status, source, externalId, price, bedrooms, bathrooms, sqft } = req.body ?? {};
+
+    if (!addressLine1?.trim()) return res.status(400).json({ error: 'addressLine1 is required.' });
+    if (!description?.trim())  return res.status(400).json({ error: 'description is required.' });
+
+    const validStatuses = ['draft', 'open', 'archived'];
+    if (!validStatuses.includes(status)) return res.status(400).json({ error: `status must be one of: ${validStatuses.join(', ')}` });
+
+    const validSources   = ['zillow', 'realtor', 'referral', 'unknown'];
+    const resolvedSource = validSources.includes(source) ? source : 'unknown';
+
+    if (price    !== undefined && price    !== null && price    !== '' && (isNaN(Number(price))    || Number(price)    < 0)) return res.status(400).json({ error: 'price must be a non-negative number.' });
+    if (bedrooms !== undefined && bedrooms !== null && bedrooms !== '' && (isNaN(Number(bedrooms)) || Number(bedrooms) < 0 || !Number.isInteger(Number(bedrooms)))) return res.status(400).json({ error: 'bedrooms must be a non-negative integer.' });
+    if (bathrooms!== undefined && bathrooms!== null && bathrooms!== '' && (isNaN(Number(bathrooms))|| Number(bathrooms)< 0)) return res.status(400).json({ error: 'bathrooms must be a non-negative number.' });
+    if (sqft     !== undefined && sqft     !== null && sqft     !== '' && (isNaN(Number(sqft))     || Number(sqft)     < 0 || !Number.isInteger(Number(sqft)))) return res.status(400).json({ error: 'sqft must be a non-negative integer.' });
+
+    const [newProperty] = await db.insert(properties).values({
+      userId:       req.user.id,
+      addressLine1: addressLine1.trim(),
+      addressLine2: addressLine2?.trim() || null,
+      description:  description.trim(),
+      status,
+      source:       resolvedSource,
+      externalId:   externalId?.trim() || null,
+      price:        price     !== undefined && price     !== null && price     !== '' ? String(Number(price))     : null,
+      bedrooms:     bedrooms  !== undefined && bedrooms  !== null && bedrooms  !== '' ? Number(bedrooms)          : null,
+      bathrooms:    bathrooms !== undefined && bathrooms !== null && bathrooms !== '' ? String(Number(bathrooms)) : null,
+      sqft:         sqft      !== undefined && sqft      !== null && sqft      !== '' ? Number(sqft)              : null,
+    }).returning();
+
+    return res.status(201).json(newProperty);
+  } catch (err) {
+    console.error('POST /api/properties error:', err);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Properties — PATCH /api/properties/:id  (Edit or soft-delete)
+// ---------------------------------------------------------------------------
+frontendComRouter.patch('/properties/:id', requireAuth, async (req, res) => {
+  try {
+    const propertyId = Number(req.params.id);
+
+    const [existing] = await db
+      .select()
+      .from(properties)
+      .where(and(eq(properties.id, propertyId), eq(properties.userId, req.user.id)))
+      .limit(1);
+
+    if (!existing) return res.status(404).json({ error: 'Property not found.' });
+
+    const { addressLine1, addressLine2, description, status, source, externalId, price, bedrooms, bathrooms, sqft } = req.body ?? {};
+
+    const validStatuses = ['draft', 'open', 'archived', 'pending_deletion'];
+    const validSources  = ['zillow', 'realtor', 'referral', 'unknown'];
+
+    const updates = {};
+
+    if (addressLine1 !== undefined) updates.addressLine1 = addressLine1?.trim() || existing.addressLine1;
+    if (addressLine2 !== undefined) updates.addressLine2 = addressLine2?.trim() || null;
+    if (description  !== undefined) updates.description  = description?.trim()  || existing.description;
+    if (externalId   !== undefined) updates.externalId   = externalId?.trim()   || null;
+
+    if (status !== undefined) {
+      if (!validStatuses.includes(status)) return res.status(400).json({ error: `status must be one of: ${validStatuses.join(', ')}` });
+      updates.status = status;
+      if (status === 'pending_deletion') {
+        const deletionDate = new Date();
+        deletionDate.setDate(deletionDate.getDate() + 30);
+        updates.deletionDate = deletionDate;
+      }
+    }
+
+    if (source !== undefined) {
+      if (!validSources.includes(source)) return res.status(400).json({ error: `source must be one of: ${validSources.join(', ')}` });
+      updates.source = source;
+    }
+
+    if (price !== undefined && price !== null && price !== '') {
+      if (isNaN(Number(price)) || Number(price) < 0) return res.status(400).json({ error: 'price must be a non-negative number.' });
+      updates.price = String(Number(price));
+    } else if (price === null || price === '') {
+      updates.price = null;
+    }
+
+    if (bedrooms !== undefined && bedrooms !== null && bedrooms !== '') {
+      if (isNaN(Number(bedrooms)) || Number(bedrooms) < 0 || !Number.isInteger(Number(bedrooms))) return res.status(400).json({ error: 'bedrooms must be a non-negative integer.' });
+      updates.bedrooms = Number(bedrooms);
+    } else if (bedrooms === null || bedrooms === '') {
+      updates.bedrooms = null;
+    }
+
+    if (bathrooms !== undefined && bathrooms !== null && bathrooms !== '') {
+      if (isNaN(Number(bathrooms)) || Number(bathrooms) < 0) return res.status(400).json({ error: 'bathrooms must be a non-negative number.' });
+      updates.bathrooms = String(Number(bathrooms));
+    } else if (bathrooms === null || bathrooms === '') {
+      updates.bathrooms = null;
+    }
+
+    if (sqft !== undefined && sqft !== null && sqft !== '') {
+      if (isNaN(Number(sqft)) || Number(sqft) < 0 || !Number.isInteger(Number(sqft))) return res.status(400).json({ error: 'sqft must be a non-negative integer.' });
+      updates.sqft = Number(sqft);
+    } else if (sqft === null || sqft === '') {
+      updates.sqft = null;
+    }
+
+    const [updated] = await db.update(properties).set(updates).where(eq(properties.id, propertyId)).returning();
+    return res.json(updated);
+  } catch (err) {
+    console.error('PATCH /api/properties/:id error:', err);
     return res.status(500).json({ error: 'Internal server error' });
   }
 });
@@ -825,41 +983,27 @@ frontendComRouter.get('/properties', requireAuth, async (req, res) => {
 // ---------------------------------------------------------------------------
 frontendComRouter.get('/messages', requireAuth, async (req, res) => {
   try {
-    const smsList = await db
-      .select({
-        id:             smsTable.id,
-        leadId:         leads.id,
-        leadName:       leads.name,
-        direction:      smsTable.direction,
-        body:           smsTable.body,
-        channel:        conversations.type,
-        sentAt:         smsTable.sentAt,
-        conversationId: smsTable.conversationId,
-      })
-      .from(smsTable)
+    const smsList = await db.select({
+      id: smsTable.id, leadId: leads.id, leadName: leads.name,
+      direction: smsTable.direction, body: smsTable.body,
+      channel: conversations.type, sentAt: smsTable.sentAt,
+      conversationId: smsTable.conversationId,
+    }).from(smsTable)
       .innerJoin(conversations, eq(smsTable.conversationId, conversations.id))
       .innerJoin(leads, eq(conversations.leadId, leads.id))
       .where(eq(leads.userId, req.user.id))
-      .orderBy(desc(smsTable.sentAt))
-      .limit(100);
+      .orderBy(desc(smsTable.sentAt)).limit(100);
 
-    const emailList = await db
-      .select({
-        id:             emailTable.id,
-        leadId:         leads.id,
-        leadName:       leads.name,
-        direction:      emailTable.direction,
-        body:           emailTable.body,
-        channel:        conversations.type,
-        sentAt:         emailTable.sentAt,
-        conversationId: emailTable.conversationId,
-      })
-      .from(emailTable)
+    const emailList = await db.select({
+      id: emailTable.id, leadId: leads.id, leadName: leads.name,
+      direction: emailTable.direction, body: emailTable.body,
+      channel: conversations.type, sentAt: emailTable.sentAt,
+      conversationId: emailTable.conversationId,
+    }).from(emailTable)
       .innerJoin(conversations, eq(emailTable.conversationId, conversations.id))
       .innerJoin(leads, eq(conversations.leadId, leads.id))
       .where(eq(leads.userId, req.user.id))
-      .orderBy(desc(emailTable.sentAt))
-      .limit(100);
+      .orderBy(desc(emailTable.sentAt)).limit(100);
 
     const rows = [...smsList, ...emailList]
       .sort((a, b) => new Date(b.sentAt) - new Date(a.sentAt))
@@ -878,24 +1022,10 @@ frontendComRouter.get('/messages', requireAuth, async (req, res) => {
 frontendComRouter.post('/notes', requireAuth, async (req, res) => {
   try {
     const { leadId, content } = req.body ?? {};
-
-    if (!leadId || !content) {
-      return res.status(400).json({ error: 'leadId and content are required' });
-    }
-
-    const [lead] = await db
-      .select()
-      .from(leads)
-      .where(and(eq(leads.id, Number(leadId)), eq(leads.userId, req.user.id)))
-      .limit(1);
-
+    if (!leadId || !content) return res.status(400).json({ error: 'leadId and content are required' });
+    const [lead] = await db.select().from(leads).where(and(eq(leads.id, Number(leadId)), eq(leads.userId, req.user.id))).limit(1);
     if (!lead) return res.status(404).json({ error: 'Lead not found' });
-
-    const [note] = await db
-      .insert(leadNotes)
-      .values({ leadId: Number(leadId), note: content })
-      .returning();
-
+    const [note] = await db.insert(leadNotes).values({ leadId: Number(leadId), note: content }).returning();
     return res.status(201).json(note);
   } catch (err) {
     console.error('POST /api/notes error:', err);
@@ -909,74 +1039,36 @@ frontendComRouter.post('/notes', requireAuth, async (req, res) => {
 frontendComRouter.post('/messages', requireAuth, async (req, res) => {
   try {
     const { leadId, content, channel } = req.body ?? {};
+    if (!leadId || !content || !channel) return res.status(400).json({ error: 'leadId, content, and channel are required' });
+    if (channel !== 'sms' && channel !== 'email') return res.status(400).json({ error: 'channel must be "sms" or "email"' });
 
-    if (!leadId || !content || !channel) {
-      return res.status(400).json({ error: 'leadId, content, and channel are required' });
-    }
-    if (channel !== 'sms' && channel !== 'email') {
-      return res.status(400).json({ error: 'channel must be "sms" or "email"' });
-    }
-
-    const [agentUser] = await db
-      .select()
-      .from(users)
-      .where(eq(users.id, req.user.id))
-      .limit(1);
-
+    const [agentUser] = await db.select().from(users).where(eq(users.id, req.user.id)).limit(1);
     if (!agentUser) return res.status(404).json({ error: 'Agent user not found' });
 
-    const [lead] = await db
-      .select()
-      .from(leads)
-      .where(and(eq(leads.id, Number(leadId)), eq(leads.userId, req.user.id)))
-      .limit(1);
-
+    const [lead] = await db.select().from(leads).where(and(eq(leads.id, Number(leadId)), eq(leads.userId, req.user.id))).limit(1);
     if (!lead) return res.status(404).json({ error: 'Lead not found' });
 
-    let [conv] = await db
-      .select()
-      .from(conversations)
-      .where(and(eq(conversations.leadId, Number(leadId)), eq(conversations.type, channel)))
-      .limit(1);
-
+    let [conv] = await db.select().from(conversations).where(and(eq(conversations.leadId, Number(leadId)), eq(conversations.type, channel))).limit(1);
     if (!conv) {
-      [conv] = await db
-        .insert(conversations)
-        .values({
-          leadId: Number(leadId),
-          type: channel,
-          status: 'active',
-          initialSender: { name: agentUser.name, email: agentUser.email },
-          initialRecipient: [{ name: lead.name ?? 'Lead', email: lead.email ?? '', phone: lead.phone ?? '' }],
-        })
-        .returning();
+      [conv] = await db.insert(conversations).values({
+        leadId: Number(leadId),
+        type: channel,
+        status: 'active',
+        initialSender: { name: agentUser.name, email: agentUser.email },
+        initialRecipient: [{ name: lead.name ?? 'Lead', email: lead.email ?? '', phone: lead.phone ?? '' }],
+      }).returning();
     }
 
     let message;
-
     if (channel === 'sms') {
-      [message] = await db
-        .insert(smsTable)
-        .values({
-          conversationId: conv.id,
-          direction: 'outbound',
-          body: content,
-          sentAt: new Date(),
-        })
-        .returning();
+      [message] = await db.insert(smsTable).values({ conversationId: conv.id, direction: 'outbound', body: content, sentAt: new Date() }).returning();
     } else {
-      [message] = await db
-        .insert(emailTable)
-        .values({
-          conversationId: conv.id,
-          direction: 'outbound',
-          sender: { name: agentUser.name, email: agentUser.email },
-          recipient: [{ name: lead.name ?? 'Lead', email: lead.email ?? '' }],
-          cc: [],
-          body: content,
-          sentAt: new Date(),
-        })
-        .returning();
+      [message] = await db.insert(emailTable).values({
+        conversationId: conv.id, direction: 'outbound',
+        sender: { name: agentUser.name, email: agentUser.email },
+        recipient: [{ name: lead.name ?? 'Lead', email: lead.email ?? '' }],
+        cc: [], body: content, sentAt: new Date(),
+      }).returning();
     }
 
     return res.status(201).json({ ...message, channel, leadId: Number(leadId) });

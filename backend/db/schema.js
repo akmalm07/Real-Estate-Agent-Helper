@@ -9,6 +9,7 @@ import {
   jsonb,
   check,
   uniqueIndex,
+  numeric,
 } from 'drizzle-orm/pg-core';
 
 import { sql } from 'drizzle-orm';
@@ -53,7 +54,6 @@ export const contactMethodEnum = pgEnum('contact_method', ['sms', 'email', 'phon
 // Team size.
 export const teamSizeEnum = pgEnum('team_size', ['just_me', '2_5', '6_20', '20_plus']);
 
-
 export const contactTypeEnum = pgEnum('contact_type', ['sms', 'email', 'off', 'both']);
 
 /*
@@ -68,11 +68,11 @@ export const users = pgTable('users', {
   email: text('email')
     .notNull()
     .unique(),
-  
+
   onboardComplete: boolean('onboard_complete')
     .notNull()
     .default(false),
-  
+
   emailConfirmed: boolean('email_confirmed')
     .default(false)
     .notNull(),
@@ -167,7 +167,7 @@ export const userOnboarding = pgTable('user_onboarding', {
 
   // ── Step 2: Lead Sources ─────────────────────────────────────────────────
   // Array of selected sources, e.g. ["zillow", "facebook_ads", "referrals"]
-  leadSources: jsonb('lead_sources').notNull().default(sql`'[]'::jsonb`), // TODO
+  leadSources: jsonb('lead_sources').notNull().default(sql`'[]'::jsonb`),
   // Free-text "Other" source (max 50 chars enforced in application layer)
   leadSourceOther: text('lead_source_other'),
 
@@ -184,7 +184,7 @@ export const userOnboarding = pgTable('user_onboarding', {
   createdAt: timestamp('created_at', { withTimezone: true })
     .defaultNow()
     .notNull(),
-    
+
   completedAt: timestamp('completed_at', { withTimezone: true })
     .notNull(),
 
@@ -221,12 +221,20 @@ export const properties = pgTable('properties', {
   // Nullable — may not be available when a property is auto-created from a lead email.
   description: text('description'),
 
+  // ── Property details ─────────────────────────────────────────────────────
+  // Nullable — may not be available when auto-created from a lead email.
+  price:     numeric('price',     { precision: 12, scale: 2 }),
+  bedrooms:  integer('bedrooms'),
+  bathrooms: numeric('bathrooms', { precision: 4,  scale: 1 }), // allows 2.5 baths
+  sqft:      integer('sqft'),
+
   deletionDate: timestamp('deletion_date', {
     withTimezone: true,
   }),
 
   source: sourceEnum('property_source')
-    .notNull(),
+    .notNull()
+    .default('unknown'),
 
   externalId: text('external_id'),
 
@@ -278,6 +286,14 @@ export const leads = pgTable('leads', {
   status: leadStatusEnum('status')
     .default('active')
     .notNull(),
+
+  // Whether the AI is actively managing this lead's conversations.
+  // true  = AI sends and responds automatically
+  // false = agent handles all communication manually
+  // This is a separate concern from lead status.
+  aiEnabled: boolean('ai_enabled')
+    .notNull()
+    .default(true),
 
   // Set when status is 'pending_deletion'. The lead will be deleted on or after this date.
   deletionDate: timestamp('deletion_date', {
@@ -576,8 +592,6 @@ export const activityLogs = pgTable('activity_logs', {
     .notNull(),
 });
 
-
-
 export const confirmationCodes = pgTable(
   'confirmation_codes',
   {
@@ -587,7 +601,7 @@ export const confirmationCodes = pgTable(
 
     code: integer('code')
       .notNull(),
-    
+
     createdAt: timestamp('created_at', { withTimezone: true })
       .defaultNow()
       .notNull(),
