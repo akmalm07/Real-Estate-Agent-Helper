@@ -10,7 +10,7 @@ import {
 } from '../db/schema.js';
 import { eq, and } from 'drizzle-orm';
 import { createGmailAuthClient, sendEmail as gmailSend, sendReply as gmailSendReply } from './gmail.js';
-import { generateAiReply } from './ai-helpers.js';
+import { generateEmailAiReply } from './ai/email-reply.js';
 import { loadLeadNotes, loadPropertyDescription } from './load-lead-helpers.js';
 import { extractPlainText } from './pubsub-webhook-helpers.js';
 
@@ -42,9 +42,9 @@ export async function loadEmailHistory(conversationId) {
   });
 
   return messages.map((m) => ({
-    direction: m.direction,
-    subject: m.subject || null,
-    body: m.body || '',
+    direction:         m.direction,
+    subject:           m.subject || null,
+    body:              m.body || '',
     externalMessageId: m.externalMessageId || null,
   }));
 }
@@ -131,8 +131,8 @@ export async function findOrCreateEmailConversation(
     .insert(conversations)
     .values({
       leadId,
-      type: 'email',
-      initialSender: { email: fromAddress },
+      type:             'email',
+      initialSender:    { email: fromAddress },
       initialRecipient: toAddresses.map((addr) => ({ email: addr })),
       externalThreadId: threadId || null,
     })
@@ -149,6 +149,7 @@ export async function findOrCreateEmailConversation(
  *   fromAddress:       string        — sender email address
  *   toAddresses:       string[]      — recipient email addresses
  *   ccAddresses:       string[]      — CC email addresses (can be empty)
+ *   inReplyTo:         string | null
  *   subject:           string | null
  *   body:              string | null
  *   externalMessageId: string | null — the RFC 2822 Message-ID or provider message ID
@@ -169,9 +170,9 @@ export async function saveEmailMessage(
   await db.insert(email).values({
     conversationId,
     direction,
-    sender: { email: fromAddress },
-    recipient: toAddresses.map((addr) => ({ email: addr })),
-    cc: ccAddresses.map((addr) => ({ email: addr })),
+    sender:            { email: fromAddress },
+    recipient:         toAddresses.map((addr) => ({ email: addr })),
+    cc:                ccAddresses.map((addr) => ({ email: addr })),
     subject,
     body,
     inReplyTo,
@@ -182,11 +183,12 @@ export async function saveEmailMessage(
 
 /*
 |--------------------------------------------------------------------------
-| Email AI Helper (delegates to ai-helpers.js)
+| Email AI Helper
 |--------------------------------------------------------------------------
 */
 
 /* Generates an AI email reply using GPT-4o-mini.
+ * Delegates directly to generateEmailAiReply in ai/email-reply.js.
  *
  * Parameters:
  *   lead:                object | null — the lead record from the database
@@ -195,13 +197,29 @@ export async function saveEmailMessage(
  *   inboundBody:         string        — the email body sent by the lead
  *   propertyDescription: string | null
  *   history:             Array         — prior email messages from loadEmailHistory()
- *   notes:               Array         — lead note strings from loadLeadNotes()
+ *   notes:               string[]      — lead note strings from loadLeadNotes()
  *
  * Returns:
- *   { subject: string, body: string, addNote: string | null, addTask: object | null, updateConversationState: object | null, readyToBook: boolean }
+ *   { subject, body, addNote, addTask, updateConversationState, readyToBook }
  */
-export async function generateEmailReply(lead, conversation, inboundSubject, inboundBody, propertyDescription, history, notes) {
-  return generateAiReply('email', lead, conversation, inboundBody, inboundSubject, propertyDescription, history, notes);
+export async function generateEmailReply(
+  lead,
+  conversation,
+  inboundSubject,
+  inboundBody,
+  propertyDescription,
+  history,
+  notes,
+) {
+  return generateEmailAiReply(
+    lead,
+    conversation,
+    inboundSubject,
+    inboundBody,
+    propertyDescription,
+    history,
+    notes,
+  );
 }
 
 /*
@@ -271,6 +289,7 @@ export async function sendAndSaveEmail(
     'outbound',
     agentEmail,
     [toAddress],
+    [],
     inReplyToMessageId,
     subject,
     body,
@@ -316,18 +335,19 @@ export async function checkForLeadAndReply(rawEmails, agentUserId, agentEmail, o
       const getHeader = (name) =>
         headers.find((h) => h.name.toLowerCase() === name.toLowerCase())?.value ?? null;
 
-      const fromHeader = getHeader('From');
-      const inReplyTo = getHeader('In-Reply-To');
-      const references = getHeader('References');
-      const subject = getHeader('Subject');
+      const fromHeader      = getHeader('From');
+      const inReplyTo       = getHeader('In-Reply-To');
+      const references      = getHeader('References');
+      const subject         = getHeader('Subject');
       const messageIdHeader = getHeader('Message-ID');
-      const gmailThreadId = rawEmail.threadId ?? null;
-      const gmailMessageId = rawEmail.id ?? null;
+      const gmailThreadId   = rawEmail.threadId ?? null;
+      const gmailMessageId  = rawEmail.id ?? null;
 
       if (!fromHeader) continue;
 
       // Extract the bare email address from the From header
-      const fromAddressMatch = fromHeader.match(/<([^>]+)>/) ?? fromHeader.match(/([^\s]+@[^\s]+)/);
+      const fromAddressMatch =
+        fromHeader.match(/<([^>]+)>/) ?? fromHeader.match(/([^\s]+@[^\s]+)/);
       const fromAddress = fromAddressMatch?.[1]?.toLowerCase() ?? null;
 
       if (!fromAddress) continue;
@@ -348,7 +368,6 @@ export async function checkForLeadAndReply(rawEmails, agentUserId, agentEmail, o
         .limit(1);
 
       const lead = leadResults[0] ?? null;
-
       if (!lead) continue;
 
       // Try to find the conversation this email is replying to.
@@ -382,6 +401,7 @@ export async function checkForLeadAndReply(rawEmails, agentUserId, agentEmail, o
         fromAddress,
         [agentEmail],
         [],
+        inReplyTo,
         subject,
         body,
         // Store the RFC 2822 Message-ID so we can match future In-Reply-To headers
@@ -399,7 +419,7 @@ export async function checkForLeadAndReply(rawEmails, agentUserId, agentEmail, o
       // Generate the AI reply
       const {
         subject: replySubject,
-        body: replyBody,
+        body:    replyBody,
         addNote,
         addTask,
         readyToBook,
@@ -414,13 +434,14 @@ export async function checkForLeadAndReply(rawEmails, agentUserId, agentEmail, o
         notes,
       );
 
-      // Find the most recent outbound message's externalMessageId and threadId
+      // Find the most recent outbound message's externalMessageId
       // so we can send the reply into the correct Gmail thread.
       const lastOutbound = [...history]
         .reverse()
         .find((m) => m.direction === 'outbound' && m.externalMessageId);
 
-      const replyToMessageId = messageIdHeader ?? inReplyTo ?? lastOutbound?.externalMessageId ?? null;
+      const replyToMessageId =
+        messageIdHeader ?? inReplyTo ?? lastOutbound?.externalMessageId ?? null;
 
       await sendAndSaveEmail(
         oauthRefreshToken,
@@ -437,15 +458,15 @@ export async function checkForLeadAndReply(rawEmails, agentUserId, agentEmail, o
       if (addNote) {
         await db.insert(leadNotes).values({
           leadId: lead.id,
-          note: addNote,
+          note:   addNote,
         });
       }
 
       // Persist addTask if the AI returned one
       if (addTask) {
         await db.insert(leadTasks).values({
-          leadId: lead.id,
-          title: addTask.title,
+          leadId:  lead.id,
+          title:   addTask.title,
           dueDate: addTask.dueDate ? new Date(addTask.dueDate) : null,
         });
       }
@@ -466,8 +487,8 @@ export async function checkForLeadAndReply(rawEmails, agentUserId, agentEmail, o
           .where(eq(leads.id, lead.id));
 
         await db.insert(leadTasks).values({
-          leadId: lead.id,
-          title: `📅 ${lead.name || 'Lead'} is ready to book an appointment — follow up now!`,
+          leadId:  lead.id,
+          title:   `📅 ${lead.name || 'Lead'} is ready to book an appointment — follow up now!`,
           dueDate: null,
         });
 

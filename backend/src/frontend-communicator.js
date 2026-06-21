@@ -430,6 +430,8 @@ frontendComRouter.get('/dashboard', requireAuth, async (req, res) => {
       createdAt: l.createdAt instanceof Date ? l.createdAt.toISOString() : l.createdAt,
       name:      l.name || null,
       source:    l.source || null,
+      email:     l.email || null,
+      phone:     l.phone || null,
     }));
 
     const leadActivity = leadsInWindow.map((l) => ({
@@ -692,8 +694,7 @@ frontendComRouter.post('/leads/:id/send-initial', requireAuth, async (req, res) 
         return res.json({
           channel: 'phone',
           mode:    'task_created',
-          message: null,
-          warning: 'Your contact preference is set to phone calls. A follow-up task has been created.',
+          message: 'Your contact preference is set to phone calls. A follow-up task has been created.',
         });
       } else {
         return res.json({ error: 'No contact method available for this lead.' });

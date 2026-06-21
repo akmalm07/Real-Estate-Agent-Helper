@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { OAuth2Client } from 'google-auth-library';
 import { eq } from 'drizzle-orm';
 import { db } from '../db/index.js';
-import { users, oauthAccounts, leads, leadNotes, userOnboarding } from '../db/schema.js';
+import { users, oauthAccounts, leads, leadNotes } from '../db/schema.js';
 import { checkForLeadAndReply } from './email-helpers.js';
 import {
   checkEmails,
@@ -209,41 +209,49 @@ pubsubEmailWebhook.post('/gmail', async (req, res) => {
       const newLeads = await checkDuplicates(parsedLeads, oauthAcc.users);
 
       if (newLeads.length > 0) {
+        // Carry parsedLead alongside each inserted lead so indices stay aligned
+        // after filtering out unverified leads below.
         const insertedLeads = await db
           .insert(leads)
           .values(
             newLeads.map(({ parsedLead, propertyId }) => ({
-              propertyId: propertyId ?? null,
-              userId: oauthAcc.users.id,
-              name: parsedLead.name ?? null,
-              email: parsedLead.email ?? null,
-              phone: parsedLead.phone ?? null,
-              source: parsedLead.source,
-              status: parsedLead.askClient ? 'unverified' : 'active',
-              // sourceId: use the platform-specific ID if available, otherwise null.
+              propertyId:  propertyId ?? null,
+              userId:      oauthAcc.users.id,
+              name:        parsedLead.name  ?? null,
+              email:       parsedLead.email ?? null,
+              phone:       parsedLead.phone ?? null,
+              source:      parsedLead.source,
+              status:      parsedLead.askClient ? 'unverified' : 'active',
+              aiEnabled:   parsedLead.askClient ? false : true,
               // 'unknown' is not a valid sourceId — null is the correct sentinel.
-              sourceId: parsedLead.zillowId ?? parsedLead.realtorId ?? null,
+              sourceId:    parsedLead.zillowId ?? parsedLead.realtorId ?? null,
             }))
           )
           .returning();
 
-        const verifiedLeads = insertedLeads.filter(
-          (lead) => lead.status === 'active'
+        // Pair each inserted lead with its original parsedLead before filtering
+        // so that array indices remain aligned after removing unverified leads.
+        const pairedLeads = insertedLeads.map((insertedLead, i) => ({
+          insertedLead,
+          parsedLead: newLeads[i].parsedLead,
+        }));
+
+        const verifiedPairs = pairedLeads.filter(
+          ({ insertedLead }) => insertedLead.status === 'active'
         );
 
         // For referral leads, insert a note recording who referred them (if known).
         // This surfaces in the lead detail view and is used by the AI for context.
-        for (let i = 0; i < verifiedLeads.length; i++) {
-          const insertedLead = verifiedLeads[i];
-          const parsedLead = newLeads[i].parsedLead;
-
+        for (const { insertedLead, parsedLead } of verifiedPairs) {
           if (parsedLead.source === 'referral' && parsedLead.referredBy) {
             await db.insert(leadNotes).values({
               leadId: insertedLead.id,
-              note: `Referred by: ${parsedLead.referredBy}`,
+              note:   `Referred by: ${parsedLead.referredBy}`,
             });
           }
         }
+
+        const verifiedLeads = verifiedPairs.map(({ insertedLead }) => insertedLead);
 
         await sendInitialMessages(
           verifiedLeads,
@@ -254,8 +262,6 @@ pubsubEmailWebhook.post('/gmail', async (req, res) => {
         console.log('Leads accepted:', verifiedLeads);
       }
     }
-
-    
 
     res.sendStatus(200);
   } catch (err) {

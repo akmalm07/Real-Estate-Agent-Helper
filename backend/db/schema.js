@@ -619,3 +619,63 @@ export const confirmationCodes = pgTable(
     ),
   })
 );
+
+/*
+|--------------------------------------------------------------------------
+| Lead Parse Corrections
+|--------------------------------------------------------------------------
+| Stores corrections made by agents to auto-parsed lead data.
+| Used for future parser improvement and audit purposes.
+| Populated by correction-logger.js whenever an agent edits a lead's
+| name, email, phone, or source after it was auto-detected.
+|
+| changedFields and matchedSignals are stored as jsonb string arrays
+| since drizzle-orm does not expose a native text[] column builder.
+| Application layer always writes/reads these as string[].
+*/
+
+export const leadParseCorrections = pgTable('lead_parse_corrections', {
+  id: serial('id').primaryKey(),
+
+  // FK to the lead that was corrected. Null-safe on cascade delete —
+  // corrections are kept even if the lead is deleted for audit purposes,
+  // so we use SET NULL rather than CASCADE.
+  leadId: integer('lead_id')
+    .references(() => leads.id, { onDelete: 'set null' }),
+
+  // ── Raw email that was parsed ─────────────────────────────────────────────
+  rawSubject: text('raw_subject'),
+  rawBody:    text('raw_body'),
+  rawFrom:    text('raw_from'),
+
+  // ── What the parser originally detected ──────────────────────────────────
+  detectedSource:     text('detected_source'),
+  detectedName:       text('detected_name'),
+  detectedEmail:      text('detected_email'),
+  detectedPhone:      text('detected_phone'),
+  // Stored as NUMERIC(4,3) — e.g. 0.750
+  detectedConfidence: numeric('detected_confidence', { precision: 4, scale: 3 }),
+
+  // ── What the agent corrected it to ───────────────────────────────────────
+  correctedSource: text('corrected_source'),
+  correctedName:   text('corrected_name'),
+  correctedEmail:  text('corrected_email'),
+  correctedPhone:  text('corrected_phone'),
+
+  // ── Which fields were actually changed ────────────────────────────────────
+  // Stored as a jsonb array of strings, e.g. ["name", "email"]
+  changedFields: jsonb('changed_fields').notNull().default(sql`'[]'::jsonb`),
+
+  // ── Parser metadata ───────────────────────────────────────────────────────
+  // Semver string identifying which parser version produced the detected values.
+  // Bump PARSER_VERSION in correction-logger.js when parsers change significantly.
+  parserVersion: text('parser_version').notNull(),
+
+  // Referral signals that fired during detection, e.g. ["my-friend", "referred-keyword"]
+  // Stored as a jsonb array of strings.
+  matchedSignals: jsonb('matched_signals').notNull().default(sql`'[]'::jsonb`),
+
+  createdAt: timestamp('created_at', { withTimezone: true })
+    .defaultNow()
+    .notNull(),
+});

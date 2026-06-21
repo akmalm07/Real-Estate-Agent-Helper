@@ -1,3 +1,19 @@
+/**
+ * pubsub-webhook-helpers.js
+ * -------------------------
+ * Orchestrates the full lead detection pipeline for inbound emails.
+ *
+ * Pipeline stages (in order):
+ *   1. Source detection      — detectEmailSource()       [source-detector.js]
+ *   2. Platform-specific parse — parseLead()             [platform-parsers.js]
+ *   3. Referral detection    — detectReferral()          [referral-detector.js]
+ *   4. Confidence scoring    — computeConfidence()       [confidence-scorer.js]
+ *   5. AI fallback           — aiParseLead()             [only if confidence < 0.50]
+ *   6. Status assignment     — shouldMarkUnverified()    [confidence-scorer.js]
+ *   7. Duplicate detection   — checkDuplicates()
+ *   8. Initial outreach      — sendInitialMessages()
+ */
+
 import OpenAI from 'openai';
 import { eq, and } from 'drizzle-orm';
 import { db } from '../db/index.js';
@@ -14,7 +30,19 @@ import {
   sendAndSaveEmail,
   generateEmailReply,
 } from './email-helpers.js';
-import { createGmailAuthClient } from './gmail.js'
+import { createGmailAuthClient } from './gmail.js';
+
+// Lead detection pipeline modules
+import { detectEmailSource, getEmailHeaders } from './lead-detection/source-detector.js';
+import { parseLead }                          from './lead-detection/platform-parsers.js';
+import { detectReferral, extractReferrerName } from './lead-detection/referral-detector.js';
+import {
+  shouldSkipAi,
+  shouldMarkUnverified,
+  shouldTryAiFallback,
+  describeConfidence,
+  computeConfidence,
+} from './lead-detection/confidence-scorer.js';
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
@@ -24,26 +52,32 @@ const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 |--------------------------------------------------------------------------
 */
 
+/**
+ * Recursively extracts plain text from a Gmail-style payload.
+ * Prefers text/plain parts; falls back to stripped HTML.
+ *
+ * @param {object} payload - Gmail message payload
+ * @returns {string|null}
+ */
 export function extractPlainText(payload) {
   // Direct body
   if (payload.body?.data) {
     return Buffer.from(payload.body.data, 'base64').toString('utf8');
   }
 
-  // Search parts for text/plain
   if (payload.parts) {
+    // Prefer text/plain
     for (const part of payload.parts) {
       if (part.mimeType === 'text/plain' && part.body?.data) {
         return Buffer.from(part.body.data, 'base64').toString('utf8');
       }
-      // Recurse into nested parts
       if (part.parts) {
         const nested = extractPlainText(part);
         if (nested) return nested;
       }
     }
 
-    // Fallback: strip HTML if no plain text found
+    // Fallback: strip HTML
     for (const part of payload.parts) {
       if (part.mimeType === 'text/html' && part.body?.data) {
         const html = Buffer.from(part.body.data, 'base64').toString('utf8');
@@ -57,40 +91,21 @@ export function extractPlainText(payload) {
 
 /*
 |--------------------------------------------------------------------------
-| Lead detection & parsing
+| AI fallback parser (Stage 5)
 |--------------------------------------------------------------------------
+| Only called when deterministic parsing confidence is below threshold.
+| Returns a normalized parse result merged with confidence scoring.
 */
 
-export function isLead(fromHeader, body) {
-  const leadSenders = /zillow\.com|realtor\.com/i;
-  if (leadSenders.test(fromHeader)) return true;
-
-  // Also detect referral language as a lead signal
-  const leadKeywords = /new lead|buyer lead|seller lead|home inquiry|property inquiry|interested in your listing|referred by|was referred|referral from|sent by|recommended by/i;
-  return leadKeywords.test(body);
-}
-
-export function regexParseLead(body) {
-  const email = body.match(/[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}/)?.[0] ?? null;
-  const phone = body.match(/(\+?1[\s\-.]?)?\(?\d{3}\)?[\s\-.]?\d{3}[\s\-.]?\d{4}/)?.[0] ?? null;
-  const property = body.match(/(?:property|home|listing|address)[:\s]+([^\n]+)/i)?.[1]?.trim() ?? null;
-  const zillowId = body.match(/zillow\.com\/homedetails\/[^/]+\/(\d+)_zpid/i)?.[1] ?? null;
-  const realtorId = body.match(/realtor\.com\/realestateandhomes-detail\/[^/]+-(\d+)/i)?.[1] ?? null;
-  const name = body.match(/(?:name|contact|buyer|seller|from)[:\s]+([A-Z][a-z]+(?:\s[A-Z][a-z]+)+)/i)?.[1]?.trim() ?? null;
-
-  // Detect referral: look for common referral phrases in the body.
-  const isReferral = /referred by|was referred|referral from|sent by|recommended by/i.test(body);
-
-  // Try to extract who referred them — useful for the agent to follow up with.
-  const referredBy = body.match(/(?:referred by|referral from|sent by|recommended by)[:\s]+([A-Z][a-z]+(?:\s[A-Z][a-z]+)*)/i)?.[1]?.trim() ?? null;
-
-  return { email, phone, property, zillowId, realtorId, name, isReferral, referredBy };
-}
-
-export function isParseComplete(parsed) {
-  return parsed.email !== null && parsed.phone !== null && parsed.property !== null;
-}
-
+/**
+ * aiParseLead(body)
+ * -----------------
+ * Uses GPT to extract lead fields from an email body.
+ * This is the LAST resort — only called when confidence < AI_FALLBACK_THRESHOLD.
+ *
+ * @param {string} body
+ * @returns {Promise<object>} - normalized parse result
+ */
 export async function aiParseLead(body) {
   const response = await openai.chat.completions.create({
     model: 'gpt-4o-mini',
@@ -98,11 +113,13 @@ export async function aiParseLead(body) {
       {
         role: 'system',
         content:
-          'You are a data extraction assistant. Extract lead information from real estate emails. ' +
-          'Strictly return a JSON object with these keys: email, phone, property, zillowId, realtorId, name, isReferral, referredBy. ' +
-          'isReferral should be true if the email indicates this lead was referred by someone (look for phrases like "referred by", "was referred", "referral from", "sent by", "recommended by"), false otherwise. ' +
-          'referredBy should be the name of the person who referred the lead, or null if not mentioned. ' +
-          'Use null for any other field you cannot find. Return ONLY the JSON object, no explanation.',
+          'You are a data extraction assistant for a real estate CRM. ' +
+          'Extract lead contact information from the email body provided. ' +
+          'IMPORTANT: The sender may be a platform (Zillow, Realtor.com, etc.) — ' +
+          'extract the ACTUAL LEAD\'s information, not the platform\'s. ' +
+          'Return ONLY a JSON object with these exact keys: ' +
+          'leadName, leadEmail, leadPhone, propertyAddress, sourceId, isReferral, referredBy. ' +
+          'Use null for any field you cannot find. No explanation, just JSON.',
       },
       {
         role: 'user',
@@ -113,112 +130,199 @@ export async function aiParseLead(body) {
   });
 
   const text = response.choices[0].message.content.trim();
+  const parsed = JSON.parse(text);
 
-  return JSON.parse(text);
+  // Normalize to our standard shape and compute confidence
+  const result = {
+    leadName:        parsed.leadName        ?? null,
+    leadEmail:       parsed.leadEmail       ?? null,
+    leadPhone:       parsed.leadPhone       ?? null,
+    propertyAddress: parsed.propertyAddress ?? null,
+    sourceId:        parsed.sourceId        ?? null,
+    senderPlatform:  'unknown',
+    rawFields:       parsed,
+  };
+
+  result.confidence = computeConfidence(result);
+  return result;
 }
 
 /*
 |--------------------------------------------------------------------------
-| Email scanning — accepts an array of normalized email objects.
-| Each object must have: { payload, id }
-| payload must be a Gmail-style payload OR a pre-normalized object with
-| { headers: [{name, value}], body: string } set by the caller.
+| isLead — quick pre-filter
+|--------------------------------------------------------------------------
+| Determines whether an email is worth processing as a potential lead.
+| This is a fast gate — it does NOT need to be perfectly accurate.
+| False positives are acceptable; false negatives are not.
+*/
+
+/**
+ * isLead(from, subject, body)
+ * ---------------------------
+ * Returns true if the email is likely a lead notification or referral.
+ *
+ * @param {string} from
+ * @param {string} subject
+ * @param {string} body
+ * @returns {boolean}
+ */
+export function isLead(from, subject, body) {
+  // Known lead platforms — always process
+  const platformDomains = /zillow\.com|realtor\.com|streeteasy\.com|trulia\.com|redfin\.com|homes\.com/i;
+  if (platformDomains.test(from)) return true;
+
+  // Subject-line signals
+  const leadSubjects = /new\s+lead|buyer\s+lead|seller\s+lead|home\s+inquiry|property\s+inquiry|contact\s+request|lead\s+notification/i;
+  if (leadSubjects.test(subject)) return true;
+
+  // Body signals — referral language or inquiry language
+  const leadBody = /new\s+lead|buyer\s+lead|seller\s+lead|interested\s+in\s+your\s+listing|referred\s+by|was\s+referred|referral\s+from|sent\s+by|recommended\s+by|please\s+reach\s+out|please\s+contact|they(?:'re|\s+are)\s+looking\s+to\s+(?:buy|sell)/i;
+  if (leadBody.test(body)) return true;
+
+  return false;
+}
+
+/*
+|--------------------------------------------------------------------------
+| checkEmails — main pipeline orchestrator
 |--------------------------------------------------------------------------
 */
 
-function detectReferral(subject, body, from, parsed = null) {
-  const text = `${subject}\n${body}\n${from}`.toLowerCase();
-
-  // strong referral phrases (real-world CRM patterns)
-  const referralPatterns = [
-    /referred\s+by/,
-    /referral\s+from/,
-    /was\s+referred/,
-    /recommended\s+by/,
-    /sent\s+you\s+a\s+lead/,
-    /sent\s+this\s+lead/,
-    /has\s+shared\s+a\s+lead/,
-    /forwarded\s+this\s+lead/,
-    /you\s+have\s+a\s+referral/,
-    /referred\s+this\s+client/,
-    /came\s+from\s+a\s+referral/
-  ];
-
-  const hasPattern = referralPatterns.some((r) => r.test(text));
-
-  // sender-based hints (very important for Zillow/Realtor ecosystems)
-  const senderHints =
-    /zillow|realtor|agent|team|real\s*estate|broker/i.test(from) &&
-    /(referral|referred|lead|contact)/i.test(text);
-
-  // parsed signal (from your regex/AI pipeline)
-  const parsedSignal = parsed?.isReferral === true;
-
-  return hasPattern || senderHints || parsedSignal;
-}
-
-
+/**
+ * checkEmails(emails)
+ * -------------------
+ * Processes an array of normalized email objects through the full
+ * lead detection pipeline.
+ *
+ * Each email must have:
+ *   - payload.headers: Array<{name, value}>
+ *   - payload.bodyText: string (optional pre-extracted body)
+ *   - id: string (Gmail message ID)
+ *
+ * Returns an array of detected lead objects ready for checkDuplicates().
+ *
+ * @param {object[]} emails
+ * @returns {Promise<object[]>}
+ */
 export async function checkEmails(emails) {
   const results = [];
 
   for (const email of emails) {
-    const headers = email.payload?.headers ?? [];
+    try {
+      // ── Extract headers and body ─────────────────────────────────────────
+      const headers = getEmailHeaders(email);
+      const body    = email.payload?.bodyText ?? extractPlainText(email.payload);
 
-    const from =
-      headers.find((h) => h.name?.toLowerCase() === 'from')?.value ?? '';
-
-    const subject =
-      headers.find((h) => h.name?.toLowerCase() === 'subject')?.value ?? '';
-
-    const isZillow = /zillow\.com/i.test(from);
-    const isRealtor = /realtor\.com/i.test(from);
-
-    const body = email.payload?.bodyText ?? extractPlainText(email.payload);
-
-    if (!body) continue;
-    if (!isLead(from, body)) continue;
-
-    let parsed = regexParseLead(body);
-
-    if (!isParseComplete(parsed)) {
-      try {
-        parsed = await aiParseLead(body);
-      } catch (err) {
-        console.error('AI parsing failed:', err);
+      if (!body) {
+        console.log(`[checkEmails] Skipping email ${email.id} — no body text`);
+        continue;
       }
+
+      // ── Quick pre-filter ─────────────────────────────────────────────────
+      if (!isLead(headers.from, headers.subject, body)) {
+        console.log(`[checkEmails] Skipping email ${email.id} — not a lead`);
+        continue;
+      }
+
+      // ── STAGE 1: Platform detection ──────────────────────────────────────
+      const { source: detectedSource, confidence: sourceConfidence } = detectEmailSource(email);
+
+      console.log(`[checkEmails] Email ${email.id}: source=${detectedSource} (confidence=${sourceConfidence})`);
+
+      // ── STAGE 2 & 3: Platform-specific parsing ───────────────────────────
+      let parseResult = parseLead(detectedSource, body, headers);
+
+      console.log(`[checkEmails] Email ${email.id}: parse confidence=${parseResult.confidence} (${describeConfidence(parseResult.confidence)})`);
+
+      // ── STAGE 4: Referral detection ──────────────────────────────────────
+      const referralResult = detectReferral(headers.subject, body, headers.from, detectedSource);
+
+      console.log(`[checkEmails] Email ${email.id}: isReferral=${referralResult.isReferral} score=${referralResult.referralScore} signals=[${referralResult.matchedSignals.join(', ')}]`);
+
+      // ── STAGE 5: AI fallback (only if confidence is too low) ─────────────
+      if (shouldTryAiFallback(parseResult.confidence)) {
+        console.log(`[checkEmails] Email ${email.id}: confidence too low (${parseResult.confidence}), attempting AI fallback`);
+        try {
+          const aiResult = await aiParseLead(body);
+
+          // Merge AI result — prefer AI values for fields that were null
+          parseResult = {
+            leadName:        parseResult.leadName        ?? aiResult.leadName,
+            leadEmail:       parseResult.leadEmail       ?? aiResult.leadEmail,
+            leadPhone:       parseResult.leadPhone       ?? aiResult.leadPhone,
+            propertyAddress: parseResult.propertyAddress ?? aiResult.propertyAddress,
+            sourceId:        parseResult.sourceId        ?? aiResult.sourceId,
+            senderPlatform:  parseResult.senderPlatform,
+            rawFields:       { ...parseResult.rawFields, ai: aiResult.rawFields },
+          };
+
+          // Recompute confidence after merge
+          parseResult.confidence = computeConfidence(parseResult);
+
+          console.log(`[checkEmails] Email ${email.id}: post-AI confidence=${parseResult.confidence}`);
+        } catch (err) {
+          console.error(`[checkEmails] AI fallback failed for email ${email.id}:`, err);
+        }
+      }
+
+      // ── Skip if we still have no contact info ────────────────────────────
+      if (!parseResult.leadEmail && !parseResult.leadPhone) {
+        console.warn(`[checkEmails] Email ${email.id}: no contact info found after all parsing stages — skipping`);
+        continue;
+      }
+
+      // ── Determine final source ───────────────────────────────────────────
+      let finalSource;
+      if (['zillow', 'realtor', 'streeteasy', 'trulia', 'redfin', 'homes'].includes(detectedSource)) {
+        finalSource = detectedSource;
+      } else if (referralResult.isReferral) {
+        finalSource = 'referral';
+      } else {
+        finalSource = 'unknown';
+      }
+
+      // ── STAGE 7: Determine lead status based on confidence ───────────────
+      // Referrals always require agent verification regardless of confidence.
+      // Low-confidence parses also require verification.
+      const requiresVerification =
+        referralResult.isReferral ||
+        shouldMarkUnverified(parseResult.confidence);
+
+      const referredBy = referralResult.isReferral
+        ? extractReferrerName(body)
+        : null;
+
+      results.push({
+        // Lead contact info (actual lead, not platform sender)
+        name:     parseResult.leadName,
+        email:    parseResult.leadEmail,
+        phone:    parseResult.leadPhone,
+        property: parseResult.propertyAddress,
+        sourceId: parseResult.sourceId,
+
+        // Classification
+        source:      finalSource,
+        askClient:   requiresVerification,  // true → status = "unverified"
+        isReferral:  referralResult.isReferral,
+        referredBy,
+
+        // Metadata for correction logging and debugging
+        subject:          headers.subject,
+        from:             headers.from,
+        gmailMessageId:   email.id ?? null,
+        parseConfidence:  parseResult.confidence,
+        referralScore:    referralResult.referralScore,
+        matchedSignals:   referralResult.matchedSignals,
+        rawFields:        parseResult.rawFields,
+      });
+
+    } catch (err) {
+      console.error(`[checkEmails] Unexpected error processing email ${email.id}:`, err);
     }
-
-    // ✅ NEW: robust referral detection
-    const isReferral = detectReferral(subject, body, from, parsed);
-
-    let source;
-
-    let varify = false;
-
-    if (isZillow) {
-      source = 'zillow';
-    } else if (isRealtor) {
-      source = 'realtor';
-    } else if (isReferral) {
-      source = 'referral';
-      varify = true;
-    } else {
-      source = 'email';
-    }
-
-    results.push({
-      ...parsed,
-      subject,
-      from,
-      source,
-      askClient: varify,
-      gmailMessageId: email.id ?? null,
-    });
   }
 
   return results;
 }
-
 
 /*
 |--------------------------------------------------------------------------
@@ -226,31 +330,38 @@ export async function checkEmails(emails) {
 |--------------------------------------------------------------------------
 */
 
-// Splits a string into lowercase tokens (words/numbers).
+/**
+ * tokenize(str)
+ * Splits a string into lowercase word/number tokens.
+ */
 function tokenize(str) {
   return str.toLowerCase().match(/\w+/g) ?? [];
 }
 
-// Tries to match a parsed lead's property string against one of the user's open properties.
-// Returns the matching property object, or null.
-//
-// Accepts either:
-//   - A string (address text from a parsed lead email)
-//   - An object with { source, externalId } for ID-based matching
-//
-// Matching strategy (any one is sufficient):
-//   1. ID match: source + externalId both match (object input only).
-//   2. Full address string contains the needle, or vice versa.
-//   3. Every token in the needle appears somewhere in the full address tokens.
+/**
+ * matchProperty(parsedPropertyStr, openProperty)
+ * -----------------------------------------------
+ * Tries to match a parsed lead's property string against one of the
+ * agent's open properties.
+ *
+ * Matching strategies (any one is sufficient):
+ *   1. ID match: source + externalId both match (object input only)
+ *   2. Substring match: address contains the needle or vice versa
+ *   3. Token match: every token in the needle appears in the address
+ *
+ * @param {string|object} parsedPropertyStr
+ * @param {object}        openProperty
+ * @returns {object|null} - the matched property, or null
+ */
 export function matchProperty(parsedPropertyStr, openProperty) {
   if (!parsedPropertyStr) return null;
 
   // Object input: try ID-based match first
   if (typeof parsedPropertyStr === 'object') {
     if (
-      parsedPropertyStr.source != null &&
+      parsedPropertyStr.source     != null &&
       parsedPropertyStr.externalId != null &&
-      parsedPropertyStr.source === openProperty.source &&
+      parsedPropertyStr.source     === openProperty.source &&
       parsedPropertyStr.externalId === openProperty.externalId
     ) {
       return openProperty;
@@ -260,18 +371,15 @@ export function matchProperty(parsedPropertyStr, openProperty) {
 
   // String input: address-based matching
   const needle = parsedPropertyStr.toLowerCase();
-
   if (!needle) return null;
 
   const addr = `${openProperty.addressLine1} ${openProperty.addressLine2 ?? ''}`.toLowerCase().trim();
 
   // Strategy 1: substring match
-  if (addr.includes(needle) || needle.includes(addr)) {
-    return openProperty;
-  }
+  if (addr.includes(needle) || needle.includes(addr)) return openProperty;
 
   // Strategy 2: every token in the needle exists in the address tokens
-  const addrTokens = new Set(tokenize(addr));
+  const addrTokens   = new Set(tokenize(addr));
   const needleTokens = tokenize(needle);
 
   if (needleTokens.length > 0 && needleTokens.every((t) => addrTokens.has(t))) {
@@ -287,16 +395,19 @@ export function matchProperty(parsedPropertyStr, openProperty) {
 |--------------------------------------------------------------------------
 */
 
-// Returns only new, valid leads — filtering out duplicates.
-// Each returned item is { parsedLead, propertyId } ready to insert.
-// propertyId may be null if the lead didn't reference a specific property —
-// the agent can assign it manually later.
-//
-// Duplicate logic is scoped per property:
-//   - If a lead matched a property, it's only a duplicate if the same email/phone
-//     already exists for THAT property.
-//   - If a lead has no matched property (propertyId null), it's deduped globally
-//     across all null-property leads for this user.
+/**
+ * checkDuplicates(parsedLeads, user)
+ * -----------------------------------
+ * Filters out leads that already exist in the database.
+ * Deduplication is scoped per property:
+ *   - If a lead matched a property, it's only a duplicate if the same
+ *     email/phone already exists for THAT property.
+ *   - If no property matched, dedup is global across null-property leads.
+ *
+ * @param {object[]} parsedLeads
+ * @param {object}   user
+ * @returns {Promise<Array<{parsedLead, propertyId}>>}
+ */
 export async function checkDuplicates(parsedLeads, user) {
   // Fetch all open properties for this user
   const openProperties = await db
@@ -304,35 +415,29 @@ export async function checkDuplicates(parsedLeads, user) {
     .from(properties)
     .where(and(
       eq(properties.userId, user.id),
-      eq(properties.status, 'open')
+      eq(properties.status, 'open'),
     ));
 
-  // Fetch ALL existing leads for this user.
+  // Fetch all existing active leads for this user
   let existingLeads;
   try {
     const result = await db
       .select()
       .from(leads)
-      .where(eq(leads.userId, user.id));
-
-    // Ensure we always have an array, regardless of what the DB layer returns
+      .where(and(eq(leads.userId, user.id), eq(leads.status, 'active')));
     existingLeads = Array.isArray(result) ? result : [];
   } catch (error) {
-    console.error('Error fetching existing leads:', error);
+    console.error('[checkDuplicates] Error fetching existing leads:', error);
     existingLeads = [];
   }
 
-  // Build a Map: propertyId (or null for unmatched) -> { emails: Set, phones: Set }
-  // This lets us check duplicates scoped to a specific property.
+  // Build a Map: propertyId (or null) → { emails: Set, phones: Set }
   const existingByProperty = new Map();
-
   for (const l of existingLeads) {
-    const key = l.propertyId; // Could be null
-
+    const key = l.propertyId ?? null;
     if (!existingByProperty.has(key)) {
       existingByProperty.set(key, { emails: new Set(), phones: new Set() });
     }
-
     const bucket = existingByProperty.get(key);
     if (l.email) bucket.emails.add(l.email.toLowerCase());
     if (l.phone) bucket.phones.add(l.phone.toLowerCase());
@@ -344,13 +449,12 @@ export async function checkDuplicates(parsedLeads, user) {
     const leadEmail = parsedLead.email?.toLowerCase() ?? null;
     const leadPhone = parsedLead.phone?.toLowerCase() ?? null;
 
-    // Cannot reliably dedup without any contact info — skip
     if (!leadEmail && !leadPhone) {
-      console.warn('Lead has no email or phone, cannot dedup — skipping:', parsedLead);
+      console.warn('[checkDuplicates] Lead has no contact info — skipping:', parsedLead);
       continue;
     }
 
-    // Try to match the lead to one of the user's open properties
+    // Try to match to an open property
     let matchedPropertyId = null;
     for (const property of openProperties) {
       const matched = matchProperty(parsedLead.property, property);
@@ -361,22 +465,23 @@ export async function checkDuplicates(parsedLeads, user) {
     }
 
     const key = matchedPropertyId ?? null;
-
     if (!existingByProperty.has(key)) {
       existingByProperty.set(key, { emails: new Set(), phones: new Set() });
     }
 
     const bucket = existingByProperty.get(key);
 
-    // Check for duplicate within the same property scope
-    if ((leadEmail && bucket.emails.has(leadEmail)) || (leadPhone && bucket.phones.has(leadPhone))) {
-      console.log(`Duplicate lead skipped for property ${key}: ${leadEmail ?? leadPhone}`);
+    if (
+      (leadEmail && bucket.emails.has(leadEmail)) ||
+      (leadPhone && bucket.phones.has(leadPhone))
+    ) {
+      console.log(`[checkDuplicates] Duplicate skipped for property ${key}: ${leadEmail ?? leadPhone}`);
       continue;
     }
 
     newLeads.push({ parsedLead, propertyId: matchedPropertyId });
 
-    // Track within this batch to avoid double-inserting within the same property
+    // Track within this batch to avoid double-inserting
     if (leadEmail) bucket.emails.add(leadEmail);
     if (leadPhone) bucket.phones.add(leadPhone);
   }
@@ -390,18 +495,18 @@ export async function checkDuplicates(parsedLeads, user) {
 |--------------------------------------------------------------------------
 */
 
-/* Sends an initial outbound SMS to a newly created lead.
- * Creates or finds an SMS conversation, generates an AI opening message,
- * sends it via Twilio, and saves it to the database.
+/**
+ * sendInitialSms(lead, message)
+ * ------------------------------
+ * Sends an initial outbound SMS to a newly created lead.
+ * If no message is provided, generates one via AI.
  *
- * Parameters:
- *   lead: object — the newly inserted lead record from the database
+ * @param {object}      lead
+ * @param {string|null} message - optional manual message
  */
 export async function sendInitialSms(lead, message = null) {
-
   const conversation = await findOrCreateSmsConversation(lead.id, lead.phone);
 
-  // No prior history or notes for a brand-new lead
   let reply;
   if (!message) {
     const obj = await generateSmsReply(lead, conversation, '', null, [], []);
@@ -411,18 +516,20 @@ export async function sendInitialSms(lead, message = null) {
   }
 
   await sendSMS(lead.phone, reply);
-
   await saveSmsMessage(conversation.id, 'outbound', reply, null);
 }
 
-/* Sends an initial outbound email to a newly created lead.
- * Creates or finds an email conversation, generates an AI opening message,
- * sends it via the agent's email account, and saves it to the database.
+/**
+ * sendInitialEmail(lead, agentEmail, oauthRefreshToken, message, subject)
+ * ------------------------------------------------------------------------
+ * Sends an initial outbound email to a newly created lead.
+ * If no message/subject is provided, generates them via AI.
  *
- * Parameters:
- *   lead:              object — the newly inserted lead record from the database
- *   agentEmail:        string — the agent's email address
- *   oauthRefreshToken: string — the agent's OAuth refresh token
+ * @param {object}      lead
+ * @param {string}      agentEmail
+ * @param {string}      oauthRefreshToken
+ * @param {string|null} message  - optional manual body
+ * @param {string|null} subject  - optional manual subject
  */
 export async function sendInitialEmail(lead, agentEmail, oauthRefreshToken, message = null, subject = null) {
   const conversation = await findOrCreateEmailConversation(
@@ -436,21 +543,15 @@ export async function sendInitialEmail(lead, agentEmail, oauthRefreshToken, mess
 
   let msg;
   let sub;
-  if (!message || !subject) { // No prior history or notes for a brand-new lead
-    const { subject, body } = await generateEmailReply(
-      lead,
-      conversation,
-      null,
-      '',
-      null,
-      [],
-      [],
-    );
-  } else {
-    msg = message ?? '';
-    sub = subject ?? '';
-  }
 
+  if (!message || !subject) {
+    const generated = await generateEmailReply(lead, conversation, null, '', null, [], []);
+    msg = generated.body;
+    sub = generated.subject;
+  } else {
+    msg = message;
+    sub = subject;
+  }
 
   await sendAndSaveEmail(
     oauthRefreshToken,
@@ -462,14 +563,17 @@ export async function sendInitialEmail(lead, agentEmail, oauthRefreshToken, mess
   );
 }
 
-/* Sends the initial outreach message to each newly inserted lead.
+/**
+ * sendInitialMessages(leads, agentEmail, oauthRefreshToken, message, subject)
+ * ----------------------------------------------------------------------------
+ * Sends the initial outreach message to each newly inserted lead.
  * Prefers SMS if the lead has a phone number, falls back to email.
- * Logs a warning and skips the lead if neither is available.
  *
- * Parameters:
- *   leads:             object[] — the full lead records returned from the DB insert
- *   agentEmail:        string   — the agent's email address
- *   oauthRefreshToken: string   — the agent's OAuth refresh token
+ * @param {object[]}    leads
+ * @param {string}      agentEmail
+ * @param {string}      oauthRefreshToken
+ * @param {string|null} message  - optional manual message (SMS body or email body)
+ * @param {string|null} subject  - optional manual email subject
  */
 export async function sendInitialMessages(leads, agentEmail, oauthRefreshToken, message = null, subject = null) {
   for (const lead of leads) {
@@ -477,12 +581,12 @@ export async function sendInitialMessages(leads, agentEmail, oauthRefreshToken, 
       if (lead.phone) {
         await sendInitialSms(lead, message);
       } else if (lead.email) {
-        await sendInitialEmail(lead, agentEmail, oauthRefreshToken, message, message);
+        await sendInitialEmail(lead, agentEmail, oauthRefreshToken, message, subject);
       } else {
-        console.warn('Lead has neither phone nor email, skipping initial message:', lead.id);
+        console.warn('[sendInitialMessages] Lead has no contact info — skipping:', lead.id);
       }
     } catch (err) {
-      console.error(`Failed to send initial message to lead ${lead.id}:`, err);
+      console.error(`[sendInitialMessages] Failed to send to lead ${lead.id}:`, err);
     }
   }
 }
