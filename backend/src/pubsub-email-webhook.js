@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { OAuth2Client } from 'google-auth-library';
 import { eq } from 'drizzle-orm';
 import { db } from '../db/index.js';
-import { users, oauthAccounts, leads, leadNotes } from '../db/schema.js';
+import { users, oauthAccounts, leads, leadNotes, userOnboarding } from '../db/schema.js';
 import { checkForLeadAndReply } from './email-helpers.js';
 import {
   checkEmails,
@@ -104,6 +104,26 @@ async function readNewEmails(oauth, newHistoryId) {
   return emails;
 }
 
+/* Builds the agentInfo object expected by the AI reply pipeline.
+ * Loads the user's name/email/phone and onboarding brokerage in parallel.
+ * Returns null if the user can't be found (defensive — shouldn't happen).
+ */
+async function buildAgentInfo(userId) {
+  const [agent, onboarding] = await Promise.all([
+    db.select().from(users).where(eq(users.id, userId)).limit(1),
+    db.select().from(userOnboarding).where(eq(userOnboarding.userId, userId)).limit(1),
+  ]);
+
+  if (!agent || agent.length === 0) return null;
+
+  return {
+    name:      agent[0].name,
+    email:     agent[0].email,
+    phone:     agent[0].phone || null,
+    brokerage: (onboarding && onboarding.length > 0) ? onboarding[0].brokerage : null,
+  };
+}
+
 /*
 |--------------------------------------------------------------------------
 | Routes
@@ -134,7 +154,7 @@ async function readNewEmails(oauth, newHistoryId) {
  * Side Effects:
  *   - Updates lastHistoryId on the oauth_accounts record
  *   - Inserts new lead records into the leads table
- *   - Inserts a leadNote for referral leads recording who referred them
+ *   - For referral leads, also writes a "Referred by: ..." lead note for visibility
  *   - Creates conversation records and sends initial SMS or email outreach
  *   - Saves inbound lead reply emails and sends AI-generated threaded replies
  */
@@ -209,6 +229,16 @@ pubsubEmailWebhook.post('/gmail', async (req, res) => {
       const newLeads = await checkDuplicates(parsedLeads, oauthAcc.users);
 
       if (newLeads.length > 0) {
+        // For platform leads (zillow, realtor, etc.), sourceId holds the listing ID.
+        // For referral leads, sourceId holds the referrer's name (if extracted).
+        // For direct/unknown leads, sourceId is null.
+        const computeSourceId = (parsedLead) => {
+          if (parsedLead.source === 'referral') {
+            return parsedLead.referredBy ?? null;
+          }
+          return parsedLead.sourceId ?? null;
+        };
+
         // Carry parsedLead alongside each inserted lead so indices stay aligned
         // after filtering out unverified leads below.
         const insertedLeads = await db
@@ -223,8 +253,7 @@ pubsubEmailWebhook.post('/gmail', async (req, res) => {
               source:      parsedLead.source,
               status:      parsedLead.askClient ? 'unverified' : 'active',
               aiEnabled:   parsedLead.askClient ? false : true,
-              // 'unknown' is not a valid sourceId — null is the correct sentinel.
-              sourceId:    parsedLead.zillowId ?? parsedLead.realtorId ?? null,
+              sourceId:    computeSourceId(parsedLead),
             }))
           )
           .returning();
@@ -236,13 +265,11 @@ pubsubEmailWebhook.post('/gmail', async (req, res) => {
           parsedLead: newLeads[i].parsedLead,
         }));
 
-        const verifiedPairs = pairedLeads.filter(
-          ({ insertedLead }) => insertedLead.status === 'active'
-        );
-
-        // For referral leads, insert a note recording who referred them (if known).
-        // This surfaces in the lead detail view and is used by the AI for context.
-        for (const { insertedLead, parsedLead } of verifiedPairs) {
+        // For all referral leads (verified or not), write a note recording who
+        // referred them. This gives the agent visibility during verification and
+        // serves as a redundant record even though the canonical referrer is
+        // now stored on lead.sourceId.
+        for (const { insertedLead, parsedLead } of pairedLeads) {
           if (parsedLead.source === 'referral' && parsedLead.referredBy) {
             await db.insert(leadNotes).values({
               leadId: insertedLead.id,
@@ -251,12 +278,23 @@ pubsubEmailWebhook.post('/gmail', async (req, res) => {
           }
         }
 
+        const verifiedPairs = pairedLeads.filter(
+          ({ insertedLead }) => insertedLead.status === 'active'
+        );
+
         const verifiedLeads = verifiedPairs.map(({ insertedLead }) => insertedLead);
+
+        // Build agentInfo so the AI's initial outreach uses real agent details
+        // and never falls back to [Your Name] placeholders.
+        const agentInfo = await buildAgentInfo(oauthAcc.users.id);
 
         await sendInitialMessages(
           verifiedLeads,
           oauthAcc.users.email,
           oauthAcc.oauth_accounts.refreshToken,
+          null,   // message
+          null,   // subject
+          agentInfo,
         );
 
         console.log('Leads accepted:', verifiedLeads);

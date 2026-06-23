@@ -30,16 +30,17 @@ export { generateAiLeadScore }                from './ai/lead-scorer.js';
  * @param {string|null}   propertyDescription
  * @param {Array}         history
  * @param {string[]}      notes
+ * @param {{ name: string, email: string|null, phone: string|null, brokerage: string|null }|null} agentInfo
  */
-export async function generateAiReply(mode, lead, conversation, inboundText, inboundSubject, propertyDescription, history, notes) {
+export async function generateAiReply(mode, lead, conversation, inboundText, inboundSubject, propertyDescription, history, notes, agentInfo = null) {
   if (mode === 'sms') {
     const { generateSmsAiReply } = await import('./ai/sms-reply.js');
-    return generateSmsAiReply(lead, conversation, inboundText, propertyDescription, history, notes);
+    return generateSmsAiReply(lead, conversation, inboundText, propertyDescription, history, notes, agentInfo);
   }
 
   if (mode === 'email') {
     const { generateEmailAiReply } = await import('./ai/email-reply.js');
-    return generateEmailAiReply(lead, conversation, inboundSubject, inboundText, propertyDescription, history, notes);
+    return generateEmailAiReply(lead, conversation, inboundSubject, inboundText, propertyDescription, history, notes, agentInfo);
   }
 
   throw new Error(`[ai-helpers] Unknown mode: "${mode}". Expected "sms" or "email".`);

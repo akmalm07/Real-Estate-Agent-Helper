@@ -4,12 +4,13 @@
  * Handles AI-generated SMS replies to leads.
  *
  * Exports:
- *   generateSmsAiReply(lead, conversation, inboundText, propertyDescription, history, notes)
+ *   generateSmsAiReply(lead, conversation, inboundText, propertyDescription, history, notes, agentInfo)
  *   → { reply, addNote, addTask, updateConversationState, readyToBook, optedOut }
  */
 
 import OpenAI from 'openai';
 import {
+  buildAgentSection,
   buildPropertySection,
   buildNotesSection,
   buildReferralGuidance,
@@ -109,11 +110,13 @@ const SMS_RESPONSE_FORMAT = {
  * @param {string|null} propertyDescription
  * @param {Array}       history
  * @param {string[]}    notes
+ * @param {{ name: string, email: string|null, phone: string|null, brokerage: string|null }|null} agentInfo
  * @returns {Array<{role: string, content: string}>}
  */
-function buildSmsMessages(lead, conversation, inboundText, propertyDescription, history, notes) {
-  const leadName      = lead?.name   ?? null;
-  const leadSource    = lead?.source ?? 'an unknown source';
+function buildSmsMessages(lead, conversation, inboundText, propertyDescription, history, notes, agentInfo) {
+  const leadName      = lead?.name     ?? null;
+  const leadSource    = lead?.source   ?? 'an unknown source';
+  const referrerName  = lead?.sourceId ?? null; // sourceId holds the referrer name for referral leads
   const leadReference = leadName ? `named ${leadName}` : 'whose name is unknown';
 
   const systemPrompt = [
@@ -121,10 +124,12 @@ function buildSmsMessages(lead, conversation, inboundText, propertyDescription, 
     'Keep replies short and conversational — this is SMS, not email.',
     'Never make up property details. If you don\'t know something, say you\'ll follow up.',
     '',
+    buildAgentSection(agentInfo),
+    '',
     buildPropertySection(propertyDescription),
     '',
     `You are communicating with a real estate lead ${leadReference}, who came from ${leadSource}.`,
-    buildReferralGuidance(leadSource),
+    buildReferralGuidance(leadSource, referrerName),
     '',
     buildConversationContext(conversation),
     '',
@@ -152,8 +157,8 @@ function buildSmsMessages(lead, conversation, inboundText, propertyDescription, 
 */
 
 /**
- * generateSmsAiReply(lead, conversation, inboundText, propertyDescription, history, notes)
- * -----------------------------------------------------------------------------------------
+ * generateSmsAiReply(lead, conversation, inboundText, propertyDescription, history, notes, agentInfo)
+ * ----------------------------------------------------------------------------------------------------
  * Generates an AI SMS reply for a lead message.
  *
  * Returns immediately with an opt-out result if the lead replied "STOP".
@@ -165,6 +170,7 @@ function buildSmsMessages(lead, conversation, inboundText, propertyDescription, 
  * @param {string|null} propertyDescription
  * @param {Array}       history
  * @param {string[]}    notes
+ * @param {{ name: string, email: string|null, phone: string|null, brokerage: string|null }|null} agentInfo
  *
  * @returns {Promise<{
  *   reply:                   string|null,
@@ -175,7 +181,7 @@ function buildSmsMessages(lead, conversation, inboundText, propertyDescription, 
  *   optedOut:                boolean,
  * }>}
  */
-export async function generateSmsAiReply(lead, conversation, inboundText, propertyDescription, history, notes) {
+export async function generateSmsAiReply(lead, conversation, inboundText, propertyDescription, history, notes, agentInfo = null) {
   // Handle opt-out immediately — no AI call needed
   if (isOptOut(inboundText)) {
     return {
@@ -188,7 +194,7 @@ export async function generateSmsAiReply(lead, conversation, inboundText, proper
     };
   }
 
-  const messages = buildSmsMessages(lead, conversation, inboundText, propertyDescription, history, notes);
+  const messages = buildSmsMessages(lead, conversation, inboundText, propertyDescription, history, notes, agentInfo);
 
   try {
     const completion = await openai.chat.completions.create({

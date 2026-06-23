@@ -8,6 +8,37 @@
  */
 
 /**
+ * Builds the agent identity section of a prompt.
+ * Gives the AI the agent's real name, brokerage, and contact info
+ * so it never falls back to placeholders like [Your Name].
+ *
+ * @param {{ name: string, email: string|null, phone: string|null, brokerage: string|null }} agentInfo
+ * @returns {string}
+ */
+export function buildAgentSection(agentInfo) {
+  if (!agentInfo) return '';
+
+  const lines = [
+    'You are acting on behalf of the following real estate agent. Always sign off using their real details — never use placeholders like [Your Name] or [Your Contact Information]:',
+    `  Agent name:  ${agentInfo.name}`,
+  ];
+
+  if (agentInfo.brokerage) {
+    lines.push(`  Brokerage:   ${agentInfo.brokerage}`);
+  }
+
+  if (agentInfo.email) {
+    lines.push(`  Email:       ${agentInfo.email}`);
+  }
+
+  if (agentInfo.phone) {
+    lines.push(`  Phone:       ${agentInfo.phone}`);
+  }
+
+  return lines.join('\n');
+}
+
+/**
  * Builds the property context section of a prompt.
  *
  * @param {string|null} propertyDescription
@@ -34,15 +65,23 @@ export function buildNotesSection(notes) {
 /**
  * Builds the referral guidance line appended to the lead intro.
  * Returns an empty string for non-referral leads.
+ * If a referrerName is provided it will be mentioned explicitly.
  *
- * @param {string} leadSource
+ * @param {string}      leadSource
+ * @param {string|null} referrerName  — name of the person who made the referral, if known
  * @returns {string}
  */
-export function buildReferralGuidance(leadSource) {
+export function buildReferralGuidance(leadSource, referrerName = null) {
   if (leadSource !== 'referral') return '';
+
+  const referrerClause = referrerName
+    ? `They were referred by ${referrerName}.`
+    : 'The specific referrer is not recorded.';
+
   return (
-    '\nIMPORTANT: This lead came in via a personal referral. They are a warm lead with an existing ' +
-    'trust connection. Greet them especially warmly, acknowledge the referral relationship if possible, ' +
+    `\nIMPORTANT: This lead came in via a personal referral. ${referrerClause} ` +
+    'They are a warm lead with an existing trust connection. Greet them especially warmly, ' +
+    'acknowledge the referral relationship and mention the referrer by name if you have it, ' +
     'and treat them as a high-priority contact. Do not use generic cold-outreach language.'
   );
 }
@@ -59,9 +98,9 @@ export function buildConversationContext(conversation) {
 
   const lines = [];
 
-  const status             = conversation.status ?? 'active';
+  const status              = conversation.status ?? 'active';
   const unansweredFollowups = conversation.unansweredFollowups ?? 0;
-  const doNotContactUntil  = conversation.doNotContactUntil
+  const doNotContactUntil   = conversation.doNotContactUntil
     ? new Date(conversation.doNotContactUntil).toISOString()
     : null;
   const state = conversation.conversationState ?? null;

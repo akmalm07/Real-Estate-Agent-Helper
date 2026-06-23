@@ -7,6 +7,8 @@ import {
   leadNotes,
   leadTasks,
   properties,
+  users,
+  userOnboarding,
 } from '../db/schema.js';
 import { eq, and } from 'drizzle-orm';
 import { createGmailAuthClient, sendEmail as gmailSend, sendReply as gmailSendReply } from './gmail.js';
@@ -198,6 +200,7 @@ export async function saveEmailMessage(
  *   propertyDescription: string | null
  *   history:             Array         — prior email messages from loadEmailHistory()
  *   notes:               string[]      — lead note strings from loadLeadNotes()
+ *   agentInfo:           object | null — agent details { name, email, phone, brokerage }
  *
  * Returns:
  *   { subject, body, addNote, addTask, updateConversationState, readyToBook }
@@ -210,6 +213,7 @@ export async function generateEmailReply(
   propertyDescription,
   history,
   notes,
+  agentInfo = null,
 ) {
   return generateEmailAiReply(
     lead,
@@ -219,6 +223,7 @@ export async function generateEmailReply(
     propertyDescription,
     history,
     notes,
+    agentInfo,
   );
 }
 
@@ -259,6 +264,13 @@ export async function sendAndSaveEmail(
   inReplyToMessageId = null,
   threadId = null,
 ) {
+  // Guard: never attempt to send a null/empty body. This protects against
+  // AI failure paths that return body=null.
+  if (!body) {
+    console.warn(`[sendAndSaveEmail] Refusing to send empty body to ${toAddress} (conversation ${conversationId}).`);
+    return;
+  }
+
   const gmailAuthClient = await createGmailAuthClient(oauthRefreshToken);
 
   let sentMessage;
@@ -316,9 +328,10 @@ export async function sendAndSaveEmail(
  *   1. Extracts the From address and In-Reply-To / References headers.
  *   2. Looks up a lead in the database whose email matches the From address.
  *   3. Tries to find an existing email conversation via In-Reply-To or threadId.
- *   4. If a matching active conversation is found, saves the inbound message,
+ *   4. Skips if lead.aiEnabled is false (agent is handling manually).
+ *   5. If a matching active conversation is found, saves the inbound message,
  *      generates an AI reply, and sends it back as a proper threaded reply.
- *   5. Skips silently if no matching lead/conversation is found or conversation
+ *   6. Skips silently if no matching lead/conversation is found or conversation
  *      is not active.
  *
  * Parameters:
@@ -337,7 +350,6 @@ export async function checkForLeadAndReply(rawEmails, agentUserId, agentEmail, o
 
       const fromHeader      = getHeader('From');
       const inReplyTo       = getHeader('In-Reply-To');
-      const references      = getHeader('References');
       const subject         = getHeader('Subject');
       const messageIdHeader = getHeader('Message-ID');
       const gmailThreadId   = rawEmail.threadId ?? null;
@@ -369,6 +381,12 @@ export async function checkForLeadAndReply(rawEmails, agentUserId, agentEmail, o
 
       const lead = leadResults[0] ?? null;
       if (!lead) continue;
+
+      // Skip if the agent has disabled AI for this lead — agent is handling manually.
+      if (lead.aiEnabled === false) {
+        console.log(`[checkForLeadAndReply] Lead ${lead.id} has aiEnabled=false — skipping auto-reply.`);
+        continue;
+      }
 
       // Try to find the conversation this email is replying to.
       // Use In-Reply-To first, then fall back to the Gmail thread ID.
@@ -410,11 +428,23 @@ export async function checkForLeadAndReply(rawEmails, agentUserId, agentEmail, o
       );
 
       // Load context for AI reply generation
-      const [history, notes, propertyDescription] = await Promise.all([
+      const [history, notes, propertyDescription, agent, onboarding] = await Promise.all([
         loadEmailHistory(conversation.id),
         loadLeadNotes(lead.id),
         loadPropertyDescription(lead.id),
+        db.select().from(users).where(eq(users.id, agentUserId)).limit(1),
+        db.select().from(userOnboarding).where(eq(userOnboarding.userId, agentUserId)).limit(1),
       ]);
+
+      // Build agent info object for the AI
+      const agentInfo = agent && agent.length > 0
+        ? {
+            name: agent[0].name,
+            email: agent[0].email,
+            phone: agent[0].phone || null,
+            brokerage: (onboarding && onboarding.length > 0) ? onboarding[0].brokerage : null,
+          }
+        : null;
 
       // Generate the AI reply
       const {
@@ -432,7 +462,14 @@ export async function checkForLeadAndReply(rawEmails, agentUserId, agentEmail, o
         propertyDescription,
         history,
         notes,
+        agentInfo,
       );
+
+      // Guard: AI may return body=null on failure. Don't send empty replies.
+      if (!replyBody) {
+        console.warn(`[checkForLeadAndReply] AI returned null body for lead ${lead.id} — skipping send.`);
+        continue;
+      }
 
       // Find the most recent outbound message's externalMessageId
       // so we can send the reply into the correct Gmail thread.

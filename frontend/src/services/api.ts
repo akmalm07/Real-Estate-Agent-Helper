@@ -1,24 +1,44 @@
-const BASE_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:8080'
+import { BACKEND_URL } from '../consts'
 
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
-  const res = await fetch(`${BASE_URL}${path}`, {
+  // BACKEND_URL is expected to end with '/'. Strip any leading '/' from path
+  // so we always produce a well-formed URL regardless of how callers write it.
+  const cleanPath = path.startsWith('/') ? path.slice(1) : path
+  const res = await fetch(`${BACKEND_URL}${cleanPath}`, {
+    credentials: 'include',
     headers: { 'Content-Type': 'application/json' },
     ...options,
   })
-  if (!res.ok) throw new Error(`HTTP ${res.status}: ${res.statusText}`)
+  if (!res.ok) {
+    let detail = ''
+    try {
+      const body = await res.json()
+      if (body?.error) detail = `: ${body.error}`
+    } catch {
+      // ignore parse error
+    }
+    throw new Error(`HTTP ${res.status}: ${res.statusText}${detail}`)
+  }
   return res.json()
 }
 
 export const api = {
-  getDashboard: () => request<DashboardData>('/api/dashboard'),
-  getLeads: () => request<Lead[]>('/api/leads'),
-  getLead: (id: string) => request<Lead>(`/api/leads/${id}`),
-  getProperties: () => request<Property[]>('/api/properties'),
-  getMessages: () => request<Message[]>('/api/messages'),
+  getDashboard:  ()             => request<DashboardData>('api/dashboard'),
+  getLeads:      ()             => request<Lead[]>('api/leads'),
+  getLead:       (id: string)   => request<Lead>(`api/leads/${id}`),
+  getProperties: ()             => request<Property[]>('api/properties'),
+  getMessages:   ()             => request<Message[]>('api/messages'),
+
+  // Notes are scoped to a lead. The backend exposes them under /api/leads/:id/notes.
   postNote: (body: { leadId: string; content: string }) =>
-    request('/api/notes', { method: 'POST', body: JSON.stringify(body) }),
-  postMessage: (body: { leadId: string; content: string; channel: string }) =>
-    request('/api/messages', { method: 'POST', body: JSON.stringify(body) }),
+    request(`api/leads/${body.leadId}/notes`, {
+      method: 'POST',
+      body: JSON.stringify({ note: body.content }),
+    }),
+
+  // Outbound messages. For email, `subject` must be provided by the caller.
+  postMessage: (body: { leadId: string; content: string; channel: 'sms' | 'email'; subject?: string }) =>
+    request('api/messages', { method: 'POST', body: JSON.stringify(body) }),
 }
 
 export interface Lead {
@@ -26,7 +46,7 @@ export interface Lead {
   name: string
   email: string
   phone: string
-  status: 'new' | 'active' | 'cold' | 'unverified' | 'converted' | 'opted_out'
+  status: 'new' | 'active' | 'cold' | 'unverified' | 'converted' | 'opted_out' | 'ready' | 'archived' | 'pending_deletion'
   source: string
   score: number
   createdAt: string
@@ -55,6 +75,7 @@ export interface Message {
   leadName?: string
   direction: 'inbound' | 'outbound'
   body: string
+  subject?: string | null
   channel: 'sms' | 'email'
   sentAt: string
   conversationId?: string
@@ -63,7 +84,8 @@ export interface Message {
 export interface Note {
   id: string
   leadId: string
-  content: string
+  // Backend stores the column as `note`; we keep the same name on the frontend.
+  note: string
   createdAt: string
 }
 

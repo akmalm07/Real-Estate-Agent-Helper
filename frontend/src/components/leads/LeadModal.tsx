@@ -45,6 +45,7 @@ export function LeadModal({
     if (!form.name.trim()) errs.name = 'Full name is required.'
     if (!form.email.trim() && !form.phone.trim()) errs.contact = 'At least one contact method (email or phone) is required.'
     if (form.email.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email.trim())) errs.email = 'Please enter a valid email address.'
+    if (form.source === 'referral' && !form.sourceId.trim()) errs.sourceId = 'Referrer name is required for referral leads.'
     if (mode === 'add' && form.messageMode === 'manual') {
       const wantsSms   = hasPhone && form.smsMessage.trim() !== ''
       const wantsEmail = hasEmail && (form.emailSubject.trim() !== '' || form.emailBody.trim() !== '')
@@ -191,11 +192,21 @@ export function LeadModal({
                   <option value="unknown">Unknown / Other</option>
                 </select>
               </div>
-              <div>
-                <label className="block text-xs font-medium text-[#475569] mb-1.5">Source ID <span className="text-[#94a3b8] font-normal">(optional)</span></label>
-                <input type="text" value={form.sourceId} onChange={set('sourceId')} placeholder="e.g. Zillow inquiry ID, MLS ID"
-                  className="w-full px-3 py-2 text-sm border border-[#e5e7eb] rounded-lg outline-none focus:border-[#4f46e5] transition-colors" />
-              </div>
+              {form.source === 'referral' && (
+                <div>
+                  <label className="block text-xs font-medium text-[#475569] mb-1.5">Referrer <span className="text-red-500">*</span></label>
+                  <input type="text" value={form.sourceId} onChange={set('sourceId')} placeholder="e.g. John Smith"
+                    className={`w-full px-3 py-2 text-sm border rounded-lg outline-none transition-colors ${errors.sourceId ? 'border-red-400 bg-red-50' : 'border-[#e5e7eb] focus:border-[#4f46e5]'}`} />
+                  {errors.sourceId && <p className="text-xs text-red-600 mt-1">{errors.sourceId}</p>}
+                </div>
+              )}
+              {form.source !== 'referral' && (
+                <div>
+                  <label className="block text-xs font-medium text-[#475569] mb-1.5">Source ID <span className="text-[#94a3b8] font-normal">(optional)</span></label>
+                  <input type="text" value={form.sourceId} onChange={set('sourceId')} placeholder="e.g. Zillow inquiry ID, MLS ID"
+                    className="w-full px-3 py-2 text-sm border border-[#e5e7eb] rounded-lg outline-none focus:border-[#4f46e5] transition-colors" />
+                </div>
+              )}
               {properties.length > 0 && (
                 <div>
                   <label className="block text-xs font-medium text-[#475569] mb-1.5">Interested Property <span className="text-[#94a3b8] font-normal">(optional)</span></label>

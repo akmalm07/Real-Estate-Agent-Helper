@@ -1,8 +1,9 @@
 import { Router } from 'express';
 import { eq, and } from 'drizzle-orm';
 import { db } from '../db/index.js';
-import { users, oauthAccounts, leads } from '../db/schema.js';
+import { users, oauthAccounts, leads, leadNotes, userOnboarding } from '../db/schema.js';
 import { msalClient } from './outlook.js';
+import { checkForLeadAndReply } from './email-helpers.js';
 import {
   checkEmails,
   checkDuplicates,
@@ -34,30 +35,24 @@ async function getAccessToken(refreshToken) {
   return tokenResponse.accessToken;
 }
 
-/* Fetches the full message object from Microsoft Graph for a given message ID.
- *
- * Parameters:
- *   accessToken: string — a valid Microsoft Graph access token
- *   messageId:   string — the Outlook message ID
- *
- * Returns:
- *   object — the raw Microsoft Graph message object
+/* Builds the agentInfo object expected by the AI reply pipeline.
+ * Loads the user's name/email/phone and onboarding brokerage in parallel.
+ * Returns null if the user can't be found (defensive — shouldn't happen).
  */
-async function fetchOutlookMessage(accessToken, messageId) {
-  const response = await fetch(
-    `https://graph.microsoft.com/v1.0/me/messages/${messageId}`,
-    {
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-      },
-    }
-  );
+async function buildAgentInfo(userId) {
+  const [agent, onboarding] = await Promise.all([
+    db.select().from(users).where(eq(users.id, userId)).limit(1),
+    db.select().from(userOnboarding).where(eq(userOnboarding.userId, userId)).limit(1),
+  ]);
 
-  if (!response.ok) {
-    throw new Error(`Failed to fetch message ${messageId}: ${await response.text()}`);
-  }
+  if (!agent || agent.length === 0) return null;
 
-  return response.json();
+  return {
+    name:      agent[0].name,
+    email:     agent[0].email,
+    phone:     agent[0].phone || null,
+    brokerage: (onboarding && onboarding.length > 0) ? onboarding[0].brokerage : null,
+  };
 }
 
 /* Normalizes a Microsoft Graph message object into the shared email format
@@ -204,7 +199,8 @@ outlookEmailWebhook.get('/outlook', (req, res) => {
 /* This route is called by Microsoft Graph when a new Outlook message arrives
  * for a subscribed inbox. It verifies the client state secret, fetches new
  * messages via the Graph delta API, parses them for leads, deduplicates,
- * inserts new leads into the database, and sends an initial outreach message.
+ * inserts new leads into the database, sends an initial outreach message,
+ * and runs the reply-detection pipeline so AI can respond to known leads.
  *
  * Called by:
  *   Microsoft Graph change notifications (webhook POST)
@@ -232,7 +228,10 @@ outlookEmailWebhook.get('/outlook', (req, res) => {
  * Side Effects:
  *   - Updates lastDeltaLink on the oauth_accounts record
  *   - Inserts new lead records into the leads table
- *   - Creates conversation records and sends initial SMS or email outreach
+ *   - For referral leads, writes a "Referred by: ..." lead note for visibility
+ *   - Creates conversation records and sends initial SMS or email outreach to
+ *     verified leads only
+ *   - Saves inbound lead reply emails and sends AI-generated threaded replies
  */
 outlookEmailWebhook.post('/outlook', async (req, res) => {
   // Microsoft Graph requires a 202 response quickly to avoid retries.
@@ -300,7 +299,18 @@ outlookEmailWebhook.post('/outlook', async (req, res) => {
 
         if (rawEmails.length === 0) continue;
 
-        const parsedLeads = await checkEmails(rawEmails);
+        // Run both pipelines concurrently, mirroring the Gmail webhook:
+        //   1. New lead detection + initial outreach
+        //   2. Lead reply detection + AI threaded response
+        const [parsedLeads] = await Promise.all([
+          checkEmails(rawEmails),
+          checkForLeadAndReply(
+            rawEmails,
+            user.id,
+            user.email,
+            oauthAcc.refreshToken,
+          ),
+        ]);
 
         if (parsedLeads.length === 0) continue;
 
@@ -308,26 +318,66 @@ outlookEmailWebhook.post('/outlook', async (req, res) => {
 
         if (newLeads.length === 0) continue;
 
+        // Same sourceId semantics as the Gmail webhook:
+        //   - platform leads (zillow/realtor/...): sourceId = listing/lead ID
+        //   - referral leads:                       sourceId = referrer name
+        //   - direct/unknown:                       sourceId = null
+        const computeSourceId = (parsedLead) => {
+          if (parsedLead.source === 'referral') {
+            return parsedLead.referredBy ?? null;
+          }
+          return parsedLead.sourceId ?? null;
+        };
+
         const insertedLeads = await db
           .insert(leads)
           .values(
             newLeads.map(({ parsedLead, propertyId }) => ({
               propertyId: propertyId ?? null,
-              userId: user.id,
-              name: parsedLead.name ?? null,
-              email: parsedLead.email ?? null,
-              phone: parsedLead.phone ?? null,
-              source: parsedLead.source,
-              sourceId: parsedLead.zillowId ?? parsedLead.realtorId ?? 'unknown',
+              userId:     user.id,
+              name:       parsedLead.name  ?? null,
+              email:      parsedLead.email ?? null,
+              phone:      parsedLead.phone ?? null,
+              source:     parsedLead.source,
+              status:     parsedLead.askClient ? 'unverified' : 'active',
+              aiEnabled:  parsedLead.askClient ? false : true,
+              sourceId:   computeSourceId(parsedLead),
             }))
           )
           .returning();
 
-        await sendInitialMessages(
-          insertedLeads,
-          user.email,
-          oauthAcc.refreshToken,
-        );
+        const pairedLeads = insertedLeads.map((insertedLead, i) => ({
+          insertedLead,
+          parsedLead: newLeads[i].parsedLead,
+        }));
+
+        // Write a referral note for every referral lead (verified or not).
+        for (const { insertedLead, parsedLead } of pairedLeads) {
+          if (parsedLead.source === 'referral' && parsedLead.referredBy) {
+            await db.insert(leadNotes).values({
+              leadId: insertedLead.id,
+              note:   `Referred by: ${parsedLead.referredBy}`,
+            });
+          }
+        }
+
+        // Only send initial outreach to verified (active) leads.
+        const verifiedLeads = pairedLeads
+          .filter(({ insertedLead }) => insertedLead.status === 'active')
+          .map(({ insertedLead }) => insertedLead);
+
+        if (verifiedLeads.length > 0) {
+          const agentInfo = await buildAgentInfo(user.id);
+
+          await sendInitialMessages(
+            verifiedLeads,
+            user.email,
+            oauthAcc.refreshToken,
+            null,   // message
+            null,   // subject
+            agentInfo,
+          );
+        }
 
         console.log('Outlook leads accepted:', insertedLeads);
       } catch (err) {

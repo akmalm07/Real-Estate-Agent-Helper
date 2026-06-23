@@ -1,7 +1,7 @@
 import twilio from 'twilio';
 import express from 'express';
 import { db } from '../db/index.js';
-import { leads, conversations, leadTasks } from '../db/schema.js';
+import { leads, conversations, leadTasks, users, userOnboarding } from '../db/schema.js';
 import { eq } from 'drizzle-orm';
 import { sendSMS } from './phone.js';
 import {
@@ -23,6 +23,15 @@ const router = express.Router();
 // Requires TWILIO_AUTH_TOKEN (not the API Key Secret) in your .env file.
 const twilioAuthToken = process.env.TWILIO_AUTH_TOKEN;
 
+/* Returns an empty TwiML response. Twilio requires a 200 with a TwiML body
+ * (or no body) — we always reply via REST API instead of TwiML, so this is
+ * just the acknowledgement.
+ */
+function respondEmpty(res) {
+  res.set('Content-Type', 'text/xml');
+  return res.status(200).send('<Response></Response>');
+}
+
 /* This route is called by Twilio when an inbound SMS is received on your
  * Twilio phone number. It validates the request is from Twilio, looks up
  * the sender in the leads database by phone number, loads conversation
@@ -31,31 +40,17 @@ const twilioAuthToken = process.env.TWILIO_AUTH_TOKEN;
  * sends the reply back via SMS, and optionally writes a new lead note or
  * lead task to the database based on the AI's recommendation.
  *
- * Called by:
- *   Twilio — configure this URL in your Twilio phone number's SMS webhook settings.
+ * Early-exits (no AI reply, no SMS sent):
+ *   - Request signature is invalid                          → 403
+ *   - Sender phone is not a known lead                      → 200 (empty TwiML)
+ *   - Lead has aiEnabled = false (agent is handling manually) → 200 (empty TwiML)
+ *   - Conversation status is not 'active'                   → 200 (empty TwiML)
+ *   - AI returns reply: null (transient failure)            → 200 (empty TwiML)
  *
- * Headers:
- *   X-Twilio-Signature: string — Twilio's HMAC signature for request validation
- *
- * Request Body (application/x-www-form-urlencoded, sent by Twilio):
- *   From:        string — sender's phone number in E.164 format (e.g. +15551234567)
- *   To:          string — our Twilio phone number
- *   Body:        string — the SMS message content
- *   MessageSid:  string — unique Twilio message ID
- *
- * Response:
- *   200 with empty TwiML body (reply is sent via REST API, not TwiML response)
- *   403 if Twilio signature validation fails
- *   500 if an internal error occurs
- *
- * Side Effects:
- *   - Looks up lead by phone number in the database
- *   - Loads SMS conversation history and lead notes from the database
- *   - Calls OpenAI GPT-4o-mini to generate a structured reply
- *   - Finds or creates a conversations record for this lead's SMS thread
+ * Side Effects (only when all gates pass):
  *   - Saves the inbound SMS to the sms table
- *   - Updates lastLeadMessageAt and resets unansweredFollowups on the conversation
- *   - Sends an outbound SMS reply via Twilio REST API (sendSMS)
+ *   - Updates lastLeadMessageAt and resets unansweredFollowups
+ *   - Sends an outbound SMS reply via Twilio REST API
  *   - Saves the outbound SMS reply to the sms table
  *   - Updates lastAgentMessageAt on the conversation
  *   - Updates conversationState if the AI returned a state update
@@ -82,7 +77,6 @@ router.post('/sms', express.urlencoded({ extended: false }), async (req, res) =>
   }
 
   const fromNumber = req.body.From;
-  const toNumber = req.body.To;
   const inboundText = req.body.Body;
   const inboundMessageSid = req.body.MessageSid;
 
@@ -102,33 +96,48 @@ router.post('/sms', express.urlencoded({ extended: false }), async (req, res) =>
 
     const lead = leadResults[0] || null;
 
+    // Gate 1: Unknown sender — do not generate an AI reply.
     if (!lead) {
-      console.warn(`Inbound SMS from unknown number: ${fromNumber}`);
+      console.warn(`Inbound SMS from unknown number: ${fromNumber} — ignoring.`);
+      return respondEmpty(res);
+    }
+
+    // Gate 2: Agent has disabled AI for this lead — do not auto-reply.
+    if (lead.aiEnabled === false) {
+      console.log(`Lead ${lead.id} has aiEnabled=false — skipping auto-reply.`);
+      return respondEmpty(res);
     }
 
     // Find or create the SMS conversation record — returns the full conversation record.
-    // We do this before generating the AI reply so we can pass the conversation
-    // context (status, unansweredFollowups, conversationState, etc.) to the AI.
-    let conversation = null;
-    if (lead) {
-      conversation = await findOrCreateSmsConversation(lead.id, fromNumber, toNumber);
-    }
+    // The signature is (leadId, leadPhone) — `fromNumber` is the lead's phone here.
+    const conversation = await findOrCreateSmsConversation(lead.id, fromNumber);
 
-    // If the conversation is not active (e.g. converted, cold, opted_out), do not auto-reply.
-    if (conversation && conversation.status !== 'active') {
-      res.set('Content-Type', 'text/xml');
-      return res.status(200).send('<Response></Response>');
+    // Gate 3: Conversation is not active (e.g. converted, cold, opted_out).
+    if (conversation.status !== 'active') {
+      console.log(`Conversation ${conversation.id} status=${conversation.status} — skipping auto-reply.`);
+      return respondEmpty(res);
     }
 
     // Save the inbound message — also updates lastLeadMessageAt and resets unansweredFollowups.
-    if (conversation) {
-      await saveSmsMessage(conversation.id, 'inbound', inboundText, inboundMessageSid);
-    }
+    await saveSmsMessage(conversation.id, 'inbound', inboundText, inboundMessageSid);
 
-    // Load conversation history and notes only if we have a known lead.
-    const history = lead ? await loadSmsHistory(lead.id) : [];
-    const notes = lead ? await loadLeadNotes(lead.id) : [];
-    const propertyDescription = lead ? await loadPropertyDescription(lead.id) : null;
+    // Load conversation history, notes, property description, and agent info.
+    const [history, notes, propertyDescription, agent, onboarding] = await Promise.all([
+      loadSmsHistory(lead.id),
+      loadLeadNotes(lead.id),
+      loadPropertyDescription(lead.id),
+      db.select().from(users).where(eq(users.id, lead.userId)).limit(1),
+      db.select().from(userOnboarding).where(eq(userOnboarding.userId, lead.userId)).limit(1),
+    ]);
+
+    const agentInfo = (agent && agent.length > 0)
+      ? {
+          name:      agent[0].name,
+          email:     agent[0].email,
+          phone:     agent[0].phone || null,
+          brokerage: (onboarding && onboarding.length > 0) ? onboarding[0].brokerage : null,
+        }
+      : null;
 
     // Generate the AI reply — pass the full conversation record for context.
     const { reply, addNote, addTask, updateConversationState, readyToBook, optedOut } = await generateSmsReply(
@@ -138,41 +147,45 @@ router.post('/sms', express.urlencoded({ extended: false }), async (req, res) =>
       propertyDescription,
       history,
       notes,
+      agentInfo,
     );
 
     // If the lead opted out, update the conversation status and stop — do not send a reply.
-    if (optedOut && conversation) {
+    if (optedOut) {
       await db
         .update(conversations)
         .set({ status: 'opted_out' })
         .where(eq(conversations.id, conversation.id));
 
-      if (addNote && lead) {
+      if (addNote) {
         await saveLeadNote(lead.id, addNote);
       }
 
-      res.set('Content-Type', 'text/xml');
-      return res.status(200).send('<Response></Response>');
+      return respondEmpty(res);
+    }
+
+    // Gate 4: AI failure produced no reply — do not send a null/empty message.
+    if (!reply) {
+      console.warn(`AI returned null reply for lead ${lead.id} — skipping send.`);
+      return respondEmpty(res);
     }
 
     // Send the reply via Twilio and get back the MessageSid.
     const twilioMessage = await sendSMS(fromNumber, reply);
 
-    if (conversation) {
-      // Save the outbound reply — also updates lastAgentMessageAt.
-      await saveSmsMessage(conversation.id, 'outbound', reply, twilioMessage.sid);
+    // Save the outbound reply — also updates lastAgentMessageAt.
+    await saveSmsMessage(conversation.id, 'outbound', reply, twilioMessage.sid);
 
-      // Persist AI conversation state update if provided.
-      if (updateConversationState !== null && updateConversationState !== undefined) {
-        await db
-          .update(conversations)
-          .set({ conversationState: updateConversationState })
-          .where(eq(conversations.id, conversation.id));
-      }
+    // Persist AI conversation state update if provided.
+    if (updateConversationState !== null && updateConversationState !== undefined) {
+      await db
+        .update(conversations)
+        .set({ conversationState: updateConversationState })
+        .where(eq(conversations.id, conversation.id));
     }
 
     // If the lead is ready to book, update their status and create an urgent agent task.
-    if (lead && readyToBook && lead.status !== 'ready') {
+    if (readyToBook && lead.status !== 'ready') {
       await db
         .update(leads)
         .set({ status: 'ready' })
@@ -188,18 +201,16 @@ router.post('/sms', express.urlencoded({ extended: false }), async (req, res) =>
     }
 
     // Persist note if GPT flagged one.
-    if (lead && addNote) {
+    if (addNote) {
       await saveLeadNote(lead.id, addNote);
     }
 
     // Persist task if GPT flagged one.
-    if (lead && addTask?.title) {
+    if (addTask?.title) {
       await saveLeadTask(lead.id, addTask.title, addTask.dueDate || null);
     }
 
-    // Respond with empty TwiML so Twilio knows the webhook was received.
-    res.set('Content-Type', 'text/xml');
-    return res.status(200).send('<Response></Response>');
+    return respondEmpty(res);
 
   } catch (err) {
     console.error('SMS webhook error:', err);

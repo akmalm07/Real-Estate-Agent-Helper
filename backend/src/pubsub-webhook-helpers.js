@@ -26,18 +26,15 @@ import {
 } from './sms-helpers.js';
 import {
   findOrCreateEmailConversation,
-  saveEmailMessage,
   sendAndSaveEmail,
   generateEmailReply,
 } from './email-helpers.js';
-import { createGmailAuthClient } from './gmail.js';
 
 // Lead detection pipeline modules
 import { detectEmailSource, getEmailHeaders } from './lead-detection/source-detector.js';
 import { parseLead }                          from './lead-detection/platform-parsers.js';
 import { detectReferral, extractReferrerName } from './lead-detection/referral-detector.js';
 import {
-  shouldSkipAi,
   shouldMarkUnverified,
   shouldTryAiFallback,
   describeConfidence,
@@ -496,32 +493,39 @@ export async function checkDuplicates(parsedLeads, user) {
 */
 
 /**
- * sendInitialSms(lead, message)
- * ------------------------------
+ * sendInitialSms(lead, message, agentInfo)
+ * -----------------------------------------
  * Sends an initial outbound SMS to a newly created lead.
  * If no message is provided, generates one via AI.
  *
  * @param {object}      lead
  * @param {string|null} message - optional manual message
+ * @param {{ name: string, email: string|null, phone: string|null, brokerage: string|null }|null} agentInfo
  */
-export async function sendInitialSms(lead, message = null) {
+export async function sendInitialSms(lead, message = null, agentInfo = null) {
   const conversation = await findOrCreateSmsConversation(lead.id, lead.phone);
 
   let reply;
   if (!message) {
-    const obj = await generateSmsReply(lead, conversation, '', null, [], []);
+    const obj = await generateSmsReply(lead, conversation, '', null, [], [], agentInfo);
     reply = obj.reply;
   } else {
     reply = message;
   }
 
-  await sendSMS(lead.phone, reply);
-  await saveSmsMessage(conversation.id, 'outbound', reply, null);
+  // Guard: AI may return null on failure. Don't send empty SMS.
+  if (!reply) {
+    console.warn(`[sendInitialSms] No reply available for lead ${lead.id} — skipping send.`);
+    return;
+  }
+
+  const twilioMessage = await sendSMS(lead.phone, reply);
+  await saveSmsMessage(conversation.id, 'outbound', reply, twilioMessage?.sid ?? null);
 }
 
 /**
- * sendInitialEmail(lead, agentEmail, oauthRefreshToken, message, subject)
- * ------------------------------------------------------------------------
+ * sendInitialEmail(lead, agentEmail, oauthRefreshToken, message, subject, agentInfo)
+ * -----------------------------------------------------------------------------------
  * Sends an initial outbound email to a newly created lead.
  * If no message/subject is provided, generates them via AI.
  *
@@ -530,8 +534,9 @@ export async function sendInitialSms(lead, message = null) {
  * @param {string}      oauthRefreshToken
  * @param {string|null} message  - optional manual body
  * @param {string|null} subject  - optional manual subject
+ * @param {{ name: string, email: string|null, phone: string|null, brokerage: string|null }|null} agentInfo
  */
-export async function sendInitialEmail(lead, agentEmail, oauthRefreshToken, message = null, subject = null) {
+export async function sendInitialEmail(lead, agentEmail, oauthRefreshToken, message = null, subject = null, agentInfo = null) {
   const conversation = await findOrCreateEmailConversation(
     lead.id,
     agentEmail,
@@ -545,12 +550,18 @@ export async function sendInitialEmail(lead, agentEmail, oauthRefreshToken, mess
   let sub;
 
   if (!message || !subject) {
-    const generated = await generateEmailReply(lead, conversation, null, '', null, [], []);
+    const generated = await generateEmailReply(lead, conversation, null, '', null, [], [], agentInfo);
     msg = generated.body;
     sub = generated.subject;
   } else {
     msg = message;
     sub = subject;
+  }
+
+  // Guard: AI may return body=null on failure. Don't send empty email.
+  if (!msg) {
+    console.warn(`[sendInitialEmail] No body available for lead ${lead.id} — skipping send.`);
+    return;
   }
 
   await sendAndSaveEmail(
@@ -564,8 +575,8 @@ export async function sendInitialEmail(lead, agentEmail, oauthRefreshToken, mess
 }
 
 /**
- * sendInitialMessages(leads, agentEmail, oauthRefreshToken, message, subject)
- * ----------------------------------------------------------------------------
+ * sendInitialMessages(leads, agentEmail, oauthRefreshToken, message, subject, agentInfo)
+ * --------------------------------------------------------------------------------------
  * Sends the initial outreach message to each newly inserted lead.
  * Prefers SMS if the lead has a phone number, falls back to email.
  *
@@ -574,14 +585,15 @@ export async function sendInitialEmail(lead, agentEmail, oauthRefreshToken, mess
  * @param {string}      oauthRefreshToken
  * @param {string|null} message  - optional manual message (SMS body or email body)
  * @param {string|null} subject  - optional manual email subject
+ * @param {{ name: string, email: string|null, phone: string|null, brokerage: string|null }|null} agentInfo
  */
-export async function sendInitialMessages(leads, agentEmail, oauthRefreshToken, message = null, subject = null) {
+export async function sendInitialMessages(leads, agentEmail, oauthRefreshToken, message = null, subject = null, agentInfo = null) {
   for (const lead of leads) {
     try {
       if (lead.phone) {
-        await sendInitialSms(lead, message);
+        await sendInitialSms(lead, message, agentInfo);
       } else if (lead.email) {
-        await sendInitialEmail(lead, agentEmail, oauthRefreshToken, message, subject);
+        await sendInitialEmail(lead, agentEmail, oauthRefreshToken, message, subject, agentInfo);
       } else {
         console.warn('[sendInitialMessages] Lead has no contact info — skipping:', lead.id);
       }

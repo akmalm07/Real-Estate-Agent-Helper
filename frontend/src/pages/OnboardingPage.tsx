@@ -193,7 +193,7 @@ export function OnboardingPage() {
     setError(null)
     try {
       const payload = {
-        brokerage: data.brokerage || null,
+        brokerage: data.brokerage,
         primaryMarket: data.primaryMarket,
         leadsPerMonth: data.leadsPerMonth,
         leadSources: data.leadSources,
@@ -308,8 +308,7 @@ export function OnboardingPage() {
         <div className="space-y-5">
           <div>
             <label className="mb-1.5 block text-sm font-medium text-gray-700">
-              What's your brokerage?{' '}
-              <span className="text-gray-400">(optional)</span>
+              What's your brokerage?
             </label>
             <Input
               type="text"
@@ -566,7 +565,7 @@ export function OnboardingPage() {
     if (step === 0) return true
 
     if (step === 1) {
-      return !!data.primaryMarket.trim() && !!data.leadsPerMonth
+      return !!data.brokerage.trim() && !!data.primaryMarket.trim() && !!data.leadsPerMonth
     }
 
     if (step === 2) {

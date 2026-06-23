@@ -20,12 +20,12 @@ import { BACKEND_URL } from '../consts'
 import type { RawDashboardData } from '../lib/dashboardTransformer'
 
 import type { Lead, LeadSortKey } from '../components/leads/types'
-import { LeadModal }            from '../components/leads/LeadModal'
-import { DeleteLeadModal }      from '../components/leads/DeleteLeadModal'
+import { LeadModal }             from '../components/leads/LeadModal'
+import { DeleteLeadModal }       from '../components/leads/DeleteLeadModal'
 import { DeleteUnverifiedModal } from '../components/leads/DeleteUnverifiedModal'
-import { VerifyLeadModal }      from '../components/leads/VerifyLeadModal'
-import { LeadMenu }             from '../components/leads/LeadMenu'
-import { LeadReadyIndicator }   from '../components/leads/LeadReadyIndicator'
+import { VerifyLeadModal }       from '../components/leads/VerifyLeadModal'
+import { LeadMenu }              from '../components/leads/LeadMenu'
+import { LeadReadyIndicator }    from '../components/leads/LeadReadyIndicator'
 import { SortableHeader, HighlightedText } from '../components/leads/LeadFormShared'
 
 type RawLead = RawDashboardData['leads'][number]
@@ -77,12 +77,19 @@ export function LeadsPage() {
     }))
   }, [cache])
 
-  const unverifiedCount  = useMemo(() => leads.filter((l) => l.status === 'unverified').length, [leads])
-  const propertyOptions  = useMemo(() => properties.map((p) => ({
-    id:           String(p.id),
-    address:      (p as any).address      ?? '',
-    addressLine1: (p as any).addressLine1 ?? '',
-  })), [properties])
+  const unverifiedCount = useMemo(() => leads.filter((l) => l.status === 'unverified').length, [leads])
+
+  // Build property options for the modal, ensuring `address` is always a
+  // non-empty string so the dropdown label is never blank.
+  const propertyOptions = useMemo(() => properties.map((p) => {
+    const raw = p as any
+    const address = (raw.addressLine1 ?? raw.address ?? '').trim()
+    return {
+      id:           String(p.id),
+      address:      address || `Property #${p.id}`,
+      addressLine1: raw.addressLine1 ?? '',
+    }
+  }), [properties])
 
   const handleSort = useCallback((key: LeadSortKey) => setSort((prev) => toggleSort(prev, key)), [])
 
@@ -258,9 +265,14 @@ export function LeadsPage() {
             ) : (
               <div className="divide-y divide-[#e5e7eb]">
                 {filtered.map((lead) => {
-                  const isUnverified       = lead.status === 'unverified'
-                  const isReady            = lead.status === 'active' || lead.status === 'converted'
-                  const interestedProperty = lead.propertyId ? properties.find((p) => p.id === lead.propertyId) : undefined
+                  const isUnverified = lead.status === 'unverified'
+                  const isReady      = lead.status === 'active' || lead.status === 'converted'
+
+                  // Compare as strings on both sides — propertyOptions.id is a
+                  // string, lead.propertyId is number | null, so we normalise both.
+                  const interestedProperty = lead.propertyId != null
+                    ? propertyOptions.find((p) => p.id === String(lead.propertyId))
+                    : undefined
 
                   return (
                     <div key={lead.id}
@@ -298,7 +310,7 @@ export function LeadsPage() {
                       {/* Property */}
                       <div className="hidden sm:block text-sm text-[#0f172a]">
                         {interestedProperty
-                          ? <HighlightedText text={(interestedProperty as any).address || 'N/A'} query={search} />
+                          ? <HighlightedText text={interestedProperty.address} query={search} />
                           : 'N/A'}
                       </div>
 

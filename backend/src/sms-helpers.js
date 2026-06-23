@@ -160,10 +160,11 @@ export async function saveSmsMessage(conversationId, direction, body, externalMe
  *   propertyDescription: string | null
  *   history:             Array         — prior SMS messages from loadSmsHistory()
  *   notes:               Array         — lead note strings from loadLeadNotes()
+ *   agentInfo:           object | null — agent details { name, email, phone, brokerage }
  *
  * Returns:
  *   { reply: string, addNote: string | null, addTask: { title: string, dueDate: string | null } | null, updateConversationState: object | null, readyToBook: boolean }
  */
-export async function generateSmsReply(lead, conversation, inboundBody, propertyDescription, history, notes) {
-  return generateAiReply('sms', lead, conversation, inboundBody, null, propertyDescription, history, notes);
+export async function generateSmsReply(lead, conversation, inboundBody, propertyDescription, history, notes, agentInfo = null) {
+  return generateAiReply('sms', lead, conversation, inboundBody, null, propertyDescription, history, notes, agentInfo);
 }

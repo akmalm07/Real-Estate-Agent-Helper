@@ -32,7 +32,7 @@ export const entityTypeEnum = pgEnum('entity_type', ['lead', 'conversation', 'em
 
 // Consolidated source enum — used by both leads and properties.
 // 'referral' = lead came in via a personal referral from an existing contact.
-export const sourceEnum = pgEnum('source_type', ['zillow', 'realtor', 'referral', 'email']);
+export const sourceEnum = pgEnum('source_type', ['zillow', 'realtor', 'referral', 'email', 'unknown']);
 
 export const propertySourceEnum = pgEnum('property_source_type', ['zillow', 'realtor', 'listing' ]);
 
@@ -163,7 +163,7 @@ export const userOnboarding = pgTable('user_onboarding', {
     .unique(), // one onboarding record per user
 
   // ── Step 1: Profile ──────────────────────────────────────────────────────
-  brokerage: text('brokerage'),                        // optional free text
+  brokerage: text('brokerage').notNull(),                        // optional free text
   primaryMarket: text('primary_market'),               // city, state, or zip
   leadsPerMonth: leadsPerMonthEnum('leads_per_month'), // 0-25 | 25-50 | 50-100 | 100+
 

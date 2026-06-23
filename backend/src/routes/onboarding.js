@@ -33,6 +33,9 @@ router.post('/', requireAuth, async (req, res) => {
     if (completed !== true) {
       return res.status(400).json({ error: 'Onboarding must be submitted as a single complete bundle (completed=true).' });
     }
+    if (!brokerage?.trim()) {
+      return res.status(400).json({ error: 'brokerage is required.' });
+    }
     if (!primaryMarket?.trim()) {
       return res.status(400).json({ error: 'primaryMarket is required.' });
     }
@@ -72,7 +75,7 @@ router.post('/', requireAuth, async (req, res) => {
     const now = new Date();
     const values = {
       userId:          req.user.id,
-      brokerage:       brokerage?.trim() || null,
+      brokerage:       brokerage.trim(),
       primaryMarket:   primaryMarket.trim(),
       leadsPerMonth,
       leadSources,

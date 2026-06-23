@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useApi } from '../hooks/useApi'
-import type { Lead } from '../services/api'
+import type { Lead, Note, Message } from '../services/api'
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/Card'
 import { LeadStatusBadge } from '../components/ui/Badge'
 import { Button } from '../components/ui/Button'
@@ -24,50 +24,49 @@ import { formatDate, formatRelativeTime, getInitials } from '../lib/utils'
 import { api } from '../services/api'
 import { BACKEND_URL } from '../consts'
 
-const MOCK_LEAD: Lead = {
-  id: '1',
-  name: 'Sarah Mitchell',
-  email: 'sarah@example.com',
-  phone: '+1 555-0101',
-  status: 'active',
-  source: 'Zillow',
-  score: 82,
-  createdAt: new Date(Date.now() - 86400000).toISOString(),
-  updatedAt: new Date(Date.now() - 3600000).toISOString(),
-  propertyInterest: '3BR in Austin, TX — Budget $450k',
-  notes: [
-    { id: 'n1', leadId: '1', content: 'Pre-approved for $480k. Looking to close within 60 days.', createdAt: new Date(Date.now() - 7200000).toISOString() },
-    { id: 'n2', leadId: '1', content: 'Prefers east side of Austin. Has two kids, needs good school district.', createdAt: new Date(Date.now() - 86400000).toISOString() },
-  ],
-  messages: [
-    { id: 'm1', leadId: '1', direction: 'inbound', body: 'Hi, I saw the listing on Zillow and I\'m interested in scheduling a tour.', channel: 'sms', sentAt: new Date(Date.now() - 172800000).toISOString() },
-    { id: 'm2', leadId: '1', direction: 'outbound', body: 'Hi Sarah! Thanks for reaching out. I\'d love to set up a tour. Are you available this weekend?', channel: 'sms', sentAt: new Date(Date.now() - 169200000).toISOString() },
-    { id: 'm3', leadId: '1', direction: 'inbound', body: 'Saturday afternoon works great for me!', channel: 'sms', sentAt: new Date(Date.now() - 86400000).toISOString() },
-    { id: 'm4', leadId: '1', direction: 'outbound', body: 'Perfect! I\'ll send you the address. See you Saturday at 2pm.', channel: 'sms', sentAt: new Date(Date.now() - 82800000).toISOString() },
-  ],
+// Backend message shape (from GET /api/leads/:id) is similar to the shared
+// Message interface but lacks leadName. We type the raw row locally so we
+// don't depend on optional fields that aren't always present.
+interface LeadDetailMessage extends Omit<Message, 'leadId' | 'leadName'> {
+  id: string
+  direction: 'inbound' | 'outbound'
+  body: string
+  channel: 'sms' | 'email'
+  sentAt: string
+}
+
+interface LeadDetail extends Lead {
+  notes?: Note[]
+  messages?: LeadDetailMessage[]
 }
 
 export function LeadDetailPage() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
-  const { data, loading, error, refetch } = useApi<Lead>(`${BACKEND_URL}api/leads/${id}`)
-  const [noteText, setNoteText] = useState('')
-  const [messageText, setMessageText] = useState('')
-  const [submittingNote, setSubmittingNote] = useState(false)
-  const [submittingMessage, setSubmittingMessage] = useState(false)
-  const [activeTab, setActiveTab] = useState<'messages' | 'notes'>('messages')
+  const { data, loading, error, refetch } = useApi<LeadDetail>(`${BACKEND_URL}api/leads/${id}`)
 
-  const lead = data ?? MOCK_LEAD
+  const [noteText, setNoteText]           = useState('')
+  const [messageText, setMessageText]     = useState('')
+  const [messageChannel, setMessageChannel] = useState<'sms' | 'email'>('sms')
+  const [messageSubject, setMessageSubject] = useState('')
+  const [submittingNote, setSubmittingNote]       = useState(false)
+  const [submittingMessage, setSubmittingMessage] = useState(false)
+  const [actionError, setActionError]             = useState<string | null>(null)
+  const [activeTab, setActiveTab]                 = useState<'messages' | 'notes'>('messages')
+
+  // No mock fallback — if the API errors, we render an error state.
+  const lead = data
 
   const handleAddNote = async () => {
     if (!noteText.trim() || !id) return
     setSubmittingNote(true)
+    setActionError(null)
     try {
-      await api.postNote({ leadId: id, content: noteText })
+      await api.postNote({ leadId: id, content: noteText.trim() })
       setNoteText('')
       refetch()
-    } catch {
-      // handle error
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : 'Failed to add note.')
     } finally {
       setSubmittingNote(false)
     }
@@ -75,13 +74,24 @@ export function LeadDetailPage() {
 
   const handleSendMessage = async () => {
     if (!messageText.trim() || !id) return
+    if (messageChannel === 'email' && !messageSubject.trim()) {
+      setActionError('Subject is required when sending email.')
+      return
+    }
     setSubmittingMessage(true)
+    setActionError(null)
     try {
-      await api.postMessage({ leadId: id, content: messageText, channel: 'sms' })
+      await api.postMessage({
+        leadId: id,
+        content: messageText.trim(),
+        channel: messageChannel,
+        subject: messageChannel === 'email' ? messageSubject.trim() : undefined,
+      })
       setMessageText('')
+      setMessageSubject('')
       refetch()
-    } catch {
-      // handle error
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : 'Failed to send message.')
     } finally {
       setSubmittingMessage(false)
     }
@@ -105,7 +115,7 @@ export function LeadDetailPage() {
       {/* Lead header */}
       <Card>
         <CardContent className="p-5">
-          {loading ? (
+          {loading || !lead ? (
             <div className="flex items-center gap-4">
               <Skeleton className="w-14 h-14 rounded-full" />
               <div className="space-y-2 flex-1">
@@ -127,25 +137,31 @@ export function LeadDetailPage() {
                   <LeadStatusBadge status={lead.status} />
                 </div>
                 <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm text-[#475569]">
-                  <span className="flex items-center gap-1.5">
-                    <Mail className="w-3.5 h-3.5 text-[#94a3b8]" />
-                    {lead.email}
-                  </span>
-                  <span className="flex items-center gap-1.5">
-                    <Phone className="w-3.5 h-3.5 text-[#94a3b8]" />
-                    {lead.phone}
-                  </span>
-                  <span className="flex items-center gap-1.5">
-                    <MapPin className="w-3.5 h-3.5 text-[#94a3b8]" />
-                    {lead.source}
-                  </span>
+                  {lead.email && (
+                    <span className="flex items-center gap-1.5">
+                      <Mail className="w-3.5 h-3.5 text-[#94a3b8]" />
+                      {lead.email}
+                    </span>
+                  )}
+                  {lead.phone && (
+                    <span className="flex items-center gap-1.5">
+                      <Phone className="w-3.5 h-3.5 text-[#94a3b8]" />
+                      {lead.phone}
+                    </span>
+                  )}
+                  {lead.source && (
+                    <span className="flex items-center gap-1.5">
+                      <MapPin className="w-3.5 h-3.5 text-[#94a3b8]" />
+                      {lead.source}
+                    </span>
+                  )}
                 </div>
               </div>
               <div className="flex items-center gap-3 flex-shrink-0">
                 <div className="text-center">
                   <div className="flex items-center gap-1">
                     <Star className="w-3.5 h-3.5 text-amber-500" />
-                    <span className="text-lg font-semibold text-[#0f172a]">{lead.score}</span>
+                    <span className="text-lg font-semibold text-[#0f172a]">{lead.score ?? 0}</span>
                   </div>
                   <p className="text-xs text-[#94a3b8]">Score</p>
                 </div>
@@ -154,6 +170,12 @@ export function LeadDetailPage() {
           )}
         </CardContent>
       </Card>
+
+      {actionError && (
+        <div className="bg-red-50 border border-red-200 rounded-lg px-4 py-3 text-sm text-red-700">
+          {actionError}
+        </div>
+      )}
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
         {/* Left: Messages + Notes */}
@@ -182,7 +204,7 @@ export function LeadDetailPage() {
                 <CardTitle>Conversation</CardTitle>
               </CardHeader>
               <div className="px-5 py-4 space-y-3 max-h-80 overflow-y-auto scrollbar-thin">
-                {loading ? (
+                {loading || !lead ? (
                   <div className="space-y-3">
                     {Array.from({ length: 4 }).map((_, i) => (
                       <div key={i} className={`flex ${i % 2 === 0 ? '' : 'justify-end'}`}>
@@ -225,10 +247,50 @@ export function LeadDetailPage() {
                   ))
                 )}
               </div>
-              <div className="px-5 pb-4 pt-2 border-t border-[#e5e7eb]">
+              <div className="px-5 pb-4 pt-2 border-t border-[#e5e7eb] space-y-2">
+                {/* Channel picker — limited to channels the lead actually supports. */}
+                <div className="flex gap-2">
+                  {lead?.phone && (
+                    <button
+                      type="button"
+                      onClick={() => setMessageChannel('sms')}
+                      className={`flex items-center gap-1 px-3 py-1.5 rounded-md text-xs font-medium border transition-colors ${
+                        messageChannel === 'sms'
+                          ? 'bg-[#4f46e5] text-white border-[#4f46e5]'
+                          : 'bg-white text-[#475569] border-[#e5e7eb] hover:bg-[#f9fafb]'
+                      }`}
+                    >
+                      <Phone className="w-3 h-3" /> SMS
+                    </button>
+                  )}
+                  {lead?.email && (
+                    <button
+                      type="button"
+                      onClick={() => setMessageChannel('email')}
+                      className={`flex items-center gap-1 px-3 py-1.5 rounded-md text-xs font-medium border transition-colors ${
+                        messageChannel === 'email'
+                          ? 'bg-[#4f46e5] text-white border-[#4f46e5]'
+                          : 'bg-white text-[#475569] border-[#e5e7eb] hover:bg-[#f9fafb]'
+                      }`}
+                    >
+                      <Mail className="w-3 h-3" /> Email
+                    </button>
+                  )}
+                </div>
+
+                {messageChannel === 'email' && (
+                  <input
+                    type="text"
+                    placeholder="Subject"
+                    value={messageSubject}
+                    onChange={(e) => setMessageSubject(e.target.value)}
+                    className="w-full px-3 py-2 text-sm border border-[#e5e7eb] rounded-lg outline-none focus:border-[#4f46e5] transition-colors"
+                  />
+                )}
+
                 <div className="flex gap-2">
                   <Textarea
-                    placeholder="Type a message..."
+                    placeholder={`Type a ${messageChannel} message...`}
                     value={messageText}
                     onChange={(e) => setMessageText(e.target.value)}
                     rows={2}
@@ -254,7 +316,7 @@ export function LeadDetailPage() {
                 <CardTitle>Notes</CardTitle>
               </CardHeader>
               <div className="px-5 py-4 space-y-3">
-                {loading ? (
+                {loading || !lead ? (
                   <div className="space-y-3">
                     {Array.from({ length: 2 }).map((_, i) => (
                       <div key={i} className="p-3 bg-[#f9fafb] rounded-lg space-y-2">
@@ -269,7 +331,7 @@ export function LeadDetailPage() {
                 ) : (
                   (lead.notes ?? []).map((note) => (
                     <div key={note.id} className="p-3.5 bg-[#f9fafb] rounded-lg border border-[#e5e7eb]">
-                      <p className="text-sm text-[#0f172a]">{note.content}</p>
+                      <p className="text-sm text-[#0f172a]">{note.note}</p>
                       <p className="text-xs text-[#94a3b8] mt-2 flex items-center gap-1">
                         <Clock className="w-3 h-3" />
                         {formatRelativeTime(note.createdAt)}
@@ -306,7 +368,7 @@ export function LeadDetailPage() {
               <CardTitle>Lead Details</CardTitle>
             </CardHeader>
             <CardContent className="space-y-3">
-              {loading ? (
+              {loading || !lead ? (
                 <div className="space-y-3">
                   {Array.from({ length: 5 }).map((_, i) => (
                     <div key={i} className="flex justify-between">
@@ -318,11 +380,11 @@ export function LeadDetailPage() {
               ) : (
                 <>
                   {[
-                    { label: 'Source', value: lead.source },
+                    { label: 'Source', value: lead.source ?? '—' },
                     { label: 'Status', value: <LeadStatusBadge status={lead.status} /> },
-                    { label: 'Score', value: `${lead.score}/100` },
-                    { label: 'Created', value: formatDate(lead.createdAt) },
-                    { label: 'Updated', value: formatRelativeTime(lead.updatedAt) },
+                    { label: 'Score', value: `${lead.score ?? 0}/100` },
+                    { label: 'Created', value: lead.createdAt ? formatDate(lead.createdAt) : '—' },
+                    { label: 'Updated', value: lead.updatedAt ? formatRelativeTime(lead.updatedAt) : '—' },
                   ].map(({ label, value }) => (
                     <div key={label} className="flex items-center justify-between py-1 border-b border-[#f1f5f9] last:border-0">
                       <span className="text-xs text-[#94a3b8] font-medium">{label}</span>
@@ -334,7 +396,7 @@ export function LeadDetailPage() {
             </CardContent>
           </Card>
 
-          {lead.propertyInterest && (
+          {lead?.propertyInterest && (
             <Card>
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">

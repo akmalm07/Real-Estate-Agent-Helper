@@ -4,12 +4,13 @@
  * Handles AI-generated email replies to leads.
  *
  * Exports:
- *   generateEmailAiReply(lead, conversation, inboundSubject, inboundBody, propertyDescription, history, notes)
+ *   generateEmailAiReply(lead, conversation, inboundSubject, inboundBody, propertyDescription, history, notes, agentInfo)
  *   → { subject, body, addNote, addTask, updateConversationState, readyToBook }
  */
 
 import OpenAI from 'openai';
 import {
+  buildAgentSection,
   buildPropertySection,
   buildNotesSection,
   buildReferralGuidance,
@@ -29,6 +30,9 @@ const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 /**
  * Strict JSON schema for email replies.
  * OpenAI will always return exactly this shape.
+ *
+ * Note: oneOf is not supported by OpenAI Structured Outputs.
+ * Nullable objects are expressed as type: ['object', 'null'] instead.
  */
 const EMAIL_RESPONSE_FORMAT = {
   type: 'json_schema',
@@ -51,35 +55,25 @@ const EMAIL_RESPONSE_FORMAT = {
           description: 'A note to add to the lead record, or null if nothing important to log.',
         },
         addTask: {
-          oneOf: [
-            {
-              type: 'object',
-              properties: {
-                title:   { type: 'string',          description: 'Short task title for the agent.' },
-                dueDate: { type: ['string', 'null'], description: 'ISO 8601 date string, or null if no specific due date.' },
-              },
-              required: ['title', 'dueDate'],
-              additionalProperties: false,
-            },
-            { type: 'null' },
-          ],
+          type: ['object', 'null'],
           description: 'A follow-up task for the agent, or null if none needed.',
+          properties: {
+            title:   { type: 'string',          description: 'Short task title for the agent.' },
+            dueDate: { type: ['string', 'null'], description: 'ISO 8601 date string, or null if no specific due date.' },
+          },
+          required: ['title', 'dueDate'],
+          additionalProperties: false,
         },
         updateConversationState: {
-          oneOf: [
-            {
-              type: 'object',
-              properties: {
-                awaitingAnswer:  { type: 'boolean',          description: 'True if you asked the lead a question and are awaiting their reply.' },
-                pendingQuestion: { type: ['string', 'null'], description: 'The question you asked, if awaitingAnswer is true.' },
-                reason:          { type: ['string', 'null'], description: 'Brief summary of why the lead is delayed or unavailable, if applicable.' },
-              },
-              required: ['awaitingAnswer', 'pendingQuestion', 'reason'],
-              additionalProperties: false,
-            },
-            { type: 'null' },
-          ],
+          type: ['object', 'null'],
           description: 'Updated conversation state to persist, or null if nothing to track.',
+          properties: {
+            awaitingAnswer:  { type: 'boolean',          description: 'True if you asked the lead a question and are awaiting their reply.' },
+            pendingQuestion: { type: ['string', 'null'], description: 'The question you asked, if awaitingAnswer is true.' },
+            reason:          { type: ['string', 'null'], description: 'Brief summary of why the lead is delayed or unavailable, if applicable.' },
+          },
+          required: ['awaitingAnswer', 'pendingQuestion', 'reason'],
+          additionalProperties: false,
         },
         readyToBook: {
           type: 'boolean',
@@ -108,11 +102,13 @@ const EMAIL_RESPONSE_FORMAT = {
  * @param {string|null} propertyDescription
  * @param {Array}       history
  * @param {string[]}    notes
+ * @param {{ name: string, email: string|null, phone: string|null, brokerage: string|null }|null} agentInfo
  * @returns {Array<{role: string, content: string}>}
  */
-function buildEmailMessages(lead, conversation, inboundSubject, inboundBody, propertyDescription, history, notes) {
-  const leadName      = lead?.name   ?? null;
-  const leadSource    = lead?.source ?? 'an unknown source';
+function buildEmailMessages(lead, conversation, inboundSubject, inboundBody, propertyDescription, history, notes, agentInfo) {
+  const leadName      = lead?.name     ?? null;
+  const leadSource    = lead?.source   ?? 'an unknown source';
+  const referrerName  = lead?.sourceId ?? null; // sourceId holds the referrer name for referral leads
   const leadReference = leadName ? `named ${leadName}` : 'whose name is unknown';
 
   const systemPrompt = [
@@ -120,10 +116,12 @@ function buildEmailMessages(lead, conversation, inboundSubject, inboundBody, pro
     'Write replies that are polite, clear, and appropriately detailed — this is email, not SMS.',
     'Never make up property details. If you don\'t know something, say you\'ll follow up.',
     '',
+    buildAgentSection(agentInfo),
+    '',
     buildPropertySection(propertyDescription),
     '',
     `You are communicating with a real estate lead ${leadReference}, who came from ${leadSource}.`,
-    buildReferralGuidance(leadSource),
+    buildReferralGuidance(leadSource, referrerName),
     '',
     buildConversationContext(conversation),
     '',
@@ -155,8 +153,8 @@ function buildEmailMessages(lead, conversation, inboundSubject, inboundBody, pro
 */
 
 /**
- * generateEmailAiReply(lead, conversation, inboundSubject, inboundBody, propertyDescription, history, notes)
- * ----------------------------------------------------------------------------------------------------------
+ * generateEmailAiReply(lead, conversation, inboundSubject, inboundBody, propertyDescription, history, notes, agentInfo)
+ * ----------------------------------------------------------------------------------------------------------------------
  * Generates an AI email reply for a lead message.
  * Falls back gracefully if OpenAI fails.
  *
@@ -167,6 +165,7 @@ function buildEmailMessages(lead, conversation, inboundSubject, inboundBody, pro
  * @param {string|null} propertyDescription
  * @param {Array}       history
  * @param {string[]}    notes
+ * @param {{ name: string, email: string|null, phone: string|null, brokerage: string|null }|null} agentInfo
  *
  * @returns {Promise<{
  *   subject:                 string,
@@ -177,8 +176,8 @@ function buildEmailMessages(lead, conversation, inboundSubject, inboundBody, pro
  *   readyToBook:             boolean,
  * }>}
  */
-export async function generateEmailAiReply(lead, conversation, inboundSubject, inboundBody, propertyDescription, history, notes) {
-  const messages = buildEmailMessages(lead, conversation, inboundSubject, inboundBody, propertyDescription, history, notes);
+export async function generateEmailAiReply(lead, conversation, inboundSubject, inboundBody, propertyDescription, history, notes, agentInfo = null) {
+  const messages = buildEmailMessages(lead, conversation, inboundSubject, inboundBody, propertyDescription, history, notes, agentInfo);
 
   try {
     const completion = await openai.chat.completions.create({
