@@ -4,7 +4,6 @@ import { Button } from '../components/ui/Button'
 import type { ContactType, Preferences } from '../context/AuthContext'
 import {
   Chrome,
-  Mail,
   Bell,
   Shield,
   CheckCircle2,
@@ -64,7 +63,7 @@ export function SettingsPage() {
   const { logout, user } = useAuth()
   const navigate = useNavigate()
   const [googleConnected, setGoogleConnected] = useState(true)
-  const [saving, setSaving] = useState(false)
+  const [saving] = useState(false)
   const [saved, setSaved] = useState(false)
   const [sentEmail, setSentEmail] = useState(false)
 

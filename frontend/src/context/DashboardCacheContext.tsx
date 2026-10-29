@@ -18,7 +18,6 @@ import {
   useState,
 } from 'react'
 import { BACKEND_URL } from '../consts'
-import { mergeDashboardData } from '../lib/dashboardTransformer'
 import type { RawDashboardData } from '../lib/dashboardTransformer'
 import type { Property, Message } from '../services/api'
 

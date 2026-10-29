@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useApi } from '../hooks/useApi'
-import type { Lead, Note, Message } from '../services/api'
+import type { Lead, Note } from '../services/api'
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/Card'
 import { LeadStatusBadge } from '../components/ui/Badge'
 import { Button } from '../components/ui/Button'
@@ -27,15 +27,17 @@ import { BACKEND_URL } from '../consts'
 // Backend message shape (from GET /api/leads/:id) is similar to the shared
 // Message interface but lacks leadName. We type the raw row locally so we
 // don't depend on optional fields that aren't always present.
-interface LeadDetailMessage extends Omit<Message, 'leadId' | 'leadName'> {
-  id: string
+export interface LeadDetailMessage {
+  id: number
+  conversationId: number
   direction: 'inbound' | 'outbound'
-  body: string
+  body: string | null
   channel: 'sms' | 'email'
-  sentAt: string
+  sentAt: string | null
+  subject?: string | null
 }
 
-interface LeadDetail extends Lead {
+interface LeadDetail extends Omit<Lead, 'messages'> {
   notes?: Note[]
   messages?: LeadDetailMessage[]
 }
@@ -240,7 +242,7 @@ export function LeadDetailPage() {
                             msg.direction === 'outbound' ? 'text-indigo-200' : 'text-[#94a3b8]'
                           }`}
                         >
-                          {formatRelativeTime(msg.sentAt)}
+                          {msg.sentAt && formatRelativeTime(msg.sentAt)}
                         </p>
                       </div>
                     </div>
