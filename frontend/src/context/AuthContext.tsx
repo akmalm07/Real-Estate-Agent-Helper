@@ -1,42 +1,18 @@
-import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useState, type ReactNode } from 'react'
 import { BACKEND_URL } from '../consts'
+import { AuthContext, type AuthStatus, type User } from './auth-context'
+export type { ContactType, Preferences } from './auth-context'
 
-export type ContactType = 'sms' | 'email' | 'both' | 'off'
-
-interface User {
-  id: string
-  email: string
-  name: string
-  source: string
-  emailConfirmed: boolean
-  onboardComplete: boolean
-  newLeadNotify: ContactType
-  newMessageReplyNotify: ContactType
-  weeklySummeryNotify: ContactType
+async function fetchSession(): Promise<User | null> {
+  try {
+    const res = await fetch(`${BACKEND_URL}api/auth/me`, { credentials: 'include' })
+    if (!res.ok) return null
+    const data = await res.json()
+    return data.user
+  } catch {
+    return null
+  }
 }
-
-export interface Preferences {
-  newLeadNotify: ContactType
-  newMessageReplyNotify: ContactType
-  weeklySummeryNotify: ContactType
-}
-
-type AuthStatus = 'checking' | 'authenticated' | 'unauthenticated' | 'logging-in'
-
-
-interface AuthContextValue {
-  user: User | null
-  isAuthenticated: boolean
-  initializing: boolean
-  authLoading: boolean
-  authError: string | null
-  login: (email: string, password: string) => Promise<void>
-  signup: (name: string, email: string, password: string) => Promise<{ needsConfirmation: boolean }>
-  logout: () => Promise<void>
-  refreshUser: () => Promise<boolean>
-}
-
-const AuthContext = createContext<AuthContextValue | null>(null)
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null)
@@ -44,34 +20,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [authError, setAuthError] = useState<string | null>(null)
 
   const validateSession = useCallback(async (): Promise<boolean> => {
-    try {
-      const res = await fetch(`${BACKEND_URL}api/auth/me`, {
-        credentials: 'include',
-      })
-
-      if (!res.ok) {
-        setUser(null)
-        setStatus('unauthenticated')
-        return false
-      } else {
-        console.log("I recived the authentication successfully")
-      }
-
-      const data = await res.json()
-      setUser(data.user)
-      setStatus('authenticated')
-      return true
-    } catch {
-      setUser(null)
-      setStatus('unauthenticated')
-      return false
-    }
+    const sessionUser = await fetchSession()
+    setUser(sessionUser)
+    setStatus(sessionUser ? 'authenticated' : 'unauthenticated')
+    return !!sessionUser
   }, [])
 
   // Check session once on app start
   useEffect(() => {
-    validateSession()
-  }, [validateSession])
+    let cancelled = false
+    fetchSession().then((sessionUser) => {
+      if (cancelled) return
+      setUser(sessionUser)
+      setStatus(sessionUser ? 'authenticated' : 'unauthenticated')
+    })
+    return () => { cancelled = true }
+  }, [])
 
   const login = useCallback(async (email: string, password: string) => {
     setStatus('logging-in')
@@ -149,10 +113,4 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       {children}
     </AuthContext.Provider>
   )
-}
-
-export function useAuth(): AuthContextValue {
-  const ctx = useContext(AuthContext)
-  if (!ctx) throw new Error('useAuth must be used inside <AuthProvider>')
-  return ctx
 }

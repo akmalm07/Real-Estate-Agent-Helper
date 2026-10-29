@@ -12,7 +12,7 @@ import {
   DollarSign, Info, MoreVertical, Pencil, Trash2,
 } from 'lucide-react'
 import { formatCurrency, formatDate } from '../lib/utils'
-import { useDashboardCache } from '../context/DashboardCacheContext'
+import { useDashboardCache } from '../hooks/useDashboardCache'
 import { searchAndRank, getHighlightSegments, useDebounce } from '../lib/searchUtils'
 import { sortItems, toggleSort, getSortIndicator } from '../lib/tableSortUtils'
 import type { SortState } from '../lib/tableSortUtils'
@@ -24,6 +24,14 @@ import { BACKEND_URL } from '../consts'
 
 type PropertySortKey = 'address' | 'price' | 'bedrooms' | 'bathrooms' | 'sqft' | 'status' | 'createdAt'
 type ViewMode = 'grid' | 'table'
+
+// Optional fields already consumed by this screen; the shared API contract is
+// intentionally unchanged until the separate property-contract repair.
+interface PropertyDetails extends Property {
+  addressLine1?: string | null
+  addressLine2?: string | null
+  description?: string | null
+}
 
 interface PropertyFormData {
   addressLine1: string
@@ -62,18 +70,18 @@ const EMPTY_FORM: PropertyFormData = {
   externalId:   '',
 }
 
-function propertyToForm(p: Property): PropertyFormData {
+function propertyToForm(p: PropertyDetails): PropertyFormData {
   return {
-    addressLine1: (p as any).addressLine1 ?? (p as any).address ?? '',
-    addressLine2: (p as any).addressLine2 ?? '',
+    addressLine1: p.addressLine1 ?? p.address ?? '',
+    addressLine2: p.addressLine2 ?? '',
     status:       (p.status) as PropertyFormData['status'],
     price:        p.price     != null ? String(p.price)     : '',
     bedrooms:     p.bedrooms  != null ? String(p.bedrooms)  : '',
     bathrooms:    p.bathrooms != null ? String(p.bathrooms) : '',
     sqft:         p.sqft      != null ? String(p.sqft)      : '',
-    description:  (p as any).description ?? '',
+    description:  p.description ?? '',
     source:       (p.source ?? '') as PropertyFormData['source'],
-    externalId:   (p as any).externalId ?? '',
+    externalId:   p.externalId ?? '',
   }
 }
 
@@ -232,7 +240,7 @@ function PropertyModal({
   onSuccess,
 }: {
   mode: 'add' | 'edit'
-  initial?: Property
+  initial?: PropertyDetails
   onClose: () => void
   onSuccess: (property: Property) => void
 }) {
@@ -462,7 +470,8 @@ function PropertyModal({
 // ---------------------------------------------------------------------------
 
 export function PropertiesPage() {
-  const { properties, propertiesLoading, propertiesError, reload, addProperty, updateProperty, removeProperty } = useDashboardCache()
+  const { properties: cachedProperties, propertiesLoading, propertiesError, reload, addProperty, updateProperty, removeProperty } = useDashboardCache()
+  const properties: PropertyDetails[] = cachedProperties
 
   const [searchRaw, setSearchRaw]       = useState('')
   const [statusFilter, setStatusFilter] = useState('all')
@@ -472,9 +481,9 @@ export function PropertiesPage() {
 
   // Modal state
   const [modalMode, setModalMode]         = useState<'add' | 'edit'>('add')
-  const [editTarget, setEditTarget]       = useState<Property | undefined>(undefined)
+  const [editTarget, setEditTarget]       = useState<PropertyDetails | undefined>(undefined)
   const [showModal, setShowModal]         = useState(false)
-  const [deleteTarget, setDeleteTarget]   = useState<Property | null>(null)
+  const [deleteTarget, setDeleteTarget]   = useState<PropertyDetails | null>(null)
   const [deleting, setDeleting]           = useState(false)
 
   const search = useDebounce(searchRaw, 200)
@@ -494,7 +503,7 @@ export function PropertiesPage() {
     setShowModal(true)
   }, [])
 
-  const openEdit = useCallback((property: Property) => {
+  const openEdit = useCallback((property: PropertyDetails) => {
     setModalMode('edit')
     setEditTarget(property)
     setShowModal(true)
@@ -543,16 +552,16 @@ export function PropertiesPage() {
       : properties.filter((p) => p.status === statusFilter)
 
     const searched = searchAndRank(byStatus, search, (p) => [
-      (p as any).address,
-      (p as any).addressLine1,
-      (p as any).addressLine2,
+      p.address,
+      p.addressLine1,
+      p.addressLine2,
       p.status,
       p.source,
     ])
 
     return sortItems(searched, sort, (item, key) => {
       switch (key) {
-        case 'address':   return (item as any).address ?? (item as any).addressLine1
+        case 'address':   return item.address ?? item.addressLine1
         case 'price':     return item.price
         case 'bedrooms':  return item.bedrooms
         case 'bathrooms': return item.bathrooms
@@ -581,7 +590,7 @@ export function PropertiesPage() {
 
       {deleteTarget && (
         <DeleteConfirmModal
-          title={(deleteTarget as any).addressLine1 ?? (deleteTarget as any).address ?? 'this property'}
+          title={deleteTarget.addressLine1 ?? deleteTarget.address ?? 'this property'}
           onConfirm={handleDeleteConfirm}
           onCancel={() => setDeleteTarget(null)}
           loading={deleting}
@@ -651,7 +660,7 @@ export function PropertiesPage() {
           ) : (
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
               {filtered.map((property) => {
-                const address      = (property as any).address ?? (property as any).addressLine1 ?? ''
+                const address      = property.address ?? property.addressLine1 ?? ''
                 const bedroomsVal  = property.bedrooms  ?? 0
                 const bathroomsVal = property.bathrooms ?? 0
                 const sqftVal      = property.sqft      ?? 0
@@ -717,7 +726,7 @@ export function PropertiesPage() {
               ) : (
                 <div className="divide-y divide-[#e5e7eb]">
                   {filtered.map((property) => {
-                    const address = (property as any).address ?? (property as any).addressLine1 ?? ''
+                    const address = property.address ?? property.addressLine1 ?? ''
                     return (
                       <div key={property.id} className="grid grid-cols-1 sm:grid-cols-[3fr_1fr_1fr_1fr_1fr_1fr_44px] gap-4 px-5 py-3.5 hover:bg-[#f9fafb] transition-colors items-center">
                         <div className="min-w-0">

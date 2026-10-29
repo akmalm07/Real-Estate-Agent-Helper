@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/Card'
 import { Button } from '../components/ui/Button'
 import type { ContactType, Preferences } from '../context/AuthContext'
@@ -60,6 +60,12 @@ function IntegrationCard({ icon, title, description, connected, onConnect, onDis
 const options: ContactType[] = ['off', 'email', 'sms']
 
 export function SettingsPage() {
+  const { user } = useAuth()
+  const contextKey = JSON.stringify([user?.id, user?.newLeadNotify, user?.newMessageReplyNotify, user?.weeklySummeryNotify])
+  return <SettingsForm key={contextKey} />
+}
+
+function SettingsForm() {
   const { logout, user } = useAuth()
   const navigate = useNavigate()
   const [googleConnected, setGoogleConnected] = useState(true)
@@ -73,20 +79,10 @@ export function SettingsPage() {
     .join('')
 
   const [preferences, setPreferences] = useState<Preferences>({
-    newLeadNotify: 'off',
-    newMessageReplyNotify: 'off',
-    weeklySummeryNotify: 'off',
+    newLeadNotify: user?.newLeadNotify ?? 'off',
+    newMessageReplyNotify: user?.newMessageReplyNotify ?? 'off',
+    weeklySummeryNotify: user?.weeklySummeryNotify ?? 'off',
   })
-
-  useEffect(() => {
-    if (!user) return
-
-    setPreferences({
-      newLeadNotify: user.newLeadNotify,
-      newMessageReplyNotify: user.newMessageReplyNotify,
-      weeklySummeryNotify: user.weeklySummeryNotify,
-    })
-  }, [user])
 
   const handleChangePassword = async () => {
     const response = await fetch(`${BACKEND_URL}api/auth/change-password`, {

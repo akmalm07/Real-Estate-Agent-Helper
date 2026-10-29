@@ -10,25 +10,40 @@ export function VerifyLeadModal({ lead, onClose, onSuccess }: {
   onClose: () => void
   onSuccess: (warning?: string) => void
 }) {
+  return <VerifyLeadForm key={lead.id} lead={lead} onClose={onClose} onSuccess={onSuccess} />
+}
+
+function VerifyLeadForm({ lead, onClose, onSuccess }: {
+  lead: Lead
+  onClose: () => void
+  onSuccess: (warning?: string) => void
+}) {
   const [messageMode, setMessageMode]   = useState<MessageMode>('ai')
   const [smsMessage, setSmsMessage]     = useState('')
   const [emailSubject, setEmailSubject] = useState('')
   const [emailBody, setEmailBody]       = useState('')
   const [errors, setErrors]             = useState<VerifyLeadErrors>({})
   const [submitting, setSubmitting]     = useState(false)
-  const [fullLead, setFullLead]         = useState<Lead | null>(null)
-  const [loadingLead, setLoadingLead]   = useState(true)
-  const [loadError, setLoadError]       = useState<string | null>(null)
+  // Key details by the same primitive fields that determine the request context.
+  // Drafts belong to the lead identity, not to the fetched detail snapshot.
+  const requestKey = JSON.stringify([lead.id, lead.name, lead.email, lead.phone, lead.status, lead.source, lead.createdAt, lead.updatedAt])
+  const [details, setDetails] = useState<{ key: string; lead: Lead | null; error: string | null; loading: boolean }>({
+    key: requestKey, lead: null, error: null, loading: true,
+  })
+  if (details.key !== requestKey) {
+    setDetails({ key: requestKey, lead: null, error: null, loading: true })
+  }
+  const loadingLead = details.key !== requestKey || details.loading
+  const fullLead = !loadingLead ? details.lead : null
+  const loadError = !loadingLead ? details.error : null
 
   useEffect(() => {
     let cancelled = false
-    setLoadingLead(true)
-    setLoadError(null)
     fetch(`${BACKEND_URL}api/leads/${lead.id}`, { credentials: 'include' })
       .then((r) => r.json())
       .then((data) => {
         if (cancelled) return
-        setFullLead({
+        setDetails({ key: requestKey, error: null, loading: false, lead: {
           id:        String(data.id),
           name:      data.name      ?? lead.name,
           email:     data.email     ?? lead.email,
@@ -38,12 +53,11 @@ export function VerifyLeadModal({ lead, onClose, onSuccess }: {
           score:     data.score     ?? 0,
           createdAt: data.createdAt ?? lead.createdAt,
           updatedAt: data.updatedAt ?? lead.updatedAt,
-        })
+        } })
       })
-      .catch(() => { if (!cancelled) setLoadError('Could not load lead details. Please try again.') })
-      .finally(() => { if (!cancelled) setLoadingLead(false) })
+      .catch(() => { if (!cancelled) setDetails({ key: requestKey, lead: null, loading: false, error: 'Could not load lead details. Please try again.' }) })
     return () => { cancelled = true }
-  }, [lead.id, lead.name, lead.email, lead.phone, lead.status, lead.source, lead.createdAt, lead.updatedAt])
+  }, [requestKey, lead.id, lead.name, lead.email, lead.phone, lead.status, lead.source, lead.createdAt, lead.updatedAt])
 
   const hasPhone = (fullLead?.phone ?? '').trim() !== ''
   const hasEmail = (fullLead?.email ?? '').trim() !== ''

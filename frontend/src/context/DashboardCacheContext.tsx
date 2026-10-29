@@ -10,9 +10,7 @@
  */
 
 import {
-  createContext,
   useCallback,
-  useContext,
   useEffect,
   useRef,
   useState,
@@ -20,6 +18,7 @@ import {
 import { BACKEND_URL } from '../consts'
 import type { RawDashboardData } from '../lib/dashboardTransformer'
 import type { Property, Message } from '../services/api'
+import { DashboardCacheContext } from './dashboard-cache-context'
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -79,88 +78,38 @@ async function fetchMessages(): Promise<Message[]> {
 }
 
 // ---------------------------------------------------------------------------
-// Context shape
-// ---------------------------------------------------------------------------
-
-interface DashboardCacheContextValue {
-  // Dashboard
-  cache: RawDashboardData | null
-  cachedAt: number | null
-  loading: boolean
-  error: string | null
-  reload: () => Promise<void>
-
-  // Properties
-  properties: Property[]
-  propertiesLoading: boolean
-  propertiesError: string | null
-
-  // Messages
-  messages: Message[]
-  messagesLoading: boolean
-  messagesError: string | null
-
-  // Optimistic update helpers
-  addProperty: (property: Property) => void
-  updateProperty: (property: Property) => void
-  removeProperty: (id: string | number) => void
-
-  addLead: (lead: RawDashboardData['leads'][number]) => void
-  updateLead: (lead: RawDashboardData['leads'][number]) => void
-  removeLead: (id: number) => void
-}
-
-const DashboardCacheContext = createContext<DashboardCacheContextValue>({
-  cache: null,
-  cachedAt: null,
-  loading: true,
-  error: null,
-  reload: async () => {},
-
-  properties: [],
-  propertiesLoading: true,
-  propertiesError: null,
-
-  messages: [],
-  messagesLoading: true,
-  messagesError: null,
-
-  addProperty:    () => {},
-  updateProperty: () => {},
-  removeProperty: () => {},
-
-  addLead:    () => {},
-  updateLead: () => {},
-  removeLead: () => {},
-})
-
-// ---------------------------------------------------------------------------
 // Provider
 // ---------------------------------------------------------------------------
 
 export function DashboardCacheProvider({ children }: { children: React.ReactNode }) {
-  const persistedDash  = loadFromStorage<RawDashboardData>(LS_KEY_DASHBOARD)
-  const persistedProps = loadFromStorage<Property[]>(LS_KEY_PROPERTIES)
-  const persistedMsgs  = loadFromStorage<Message[]>(LS_KEY_MESSAGES)
+  const [persisted] = useState(() => {
+    const dashboard = loadFromStorage<RawDashboardData>(LS_KEY_DASHBOARD)
+    const properties = loadFromStorage<Property[]>(LS_KEY_PROPERTIES)
+    const messages = loadFromStorage<Message[]>(LS_KEY_MESSAGES)
+    const isFresh = (entry: { cachedAt: number } | null) => !!entry && Date.now() - entry.cachedAt < CACHE_STALE_MS
+    return { dashboard, properties, messages, dashFresh: isFresh(dashboard), propsFresh: isFresh(properties), msgsFresh: isFresh(messages) }
+  })
+  const { dashboard: persistedDash, properties: persistedProps, messages: persistedMsgs } = persisted
 
   // ── Dashboard state ──────────────────────────────────────────────────────
   const [cache, setCache]       = useState<RawDashboardData | null>(persistedDash?.data ?? null)
   const [cachedAt, setCachedAt] = useState<number | null>(persistedDash?.cachedAt ?? null)
-  const [loading, setLoading]   = useState(!persistedDash)
+  const [loading, setLoading]   = useState(!persisted.dashFresh)
   const [error, setError]       = useState<string | null>(null)
 
   // ── Properties state ─────────────────────────────────────────────────────
   const [properties, setProperties]               = useState<Property[]>(persistedProps?.data ?? [])
-  const [propertiesLoading, setPropertiesLoading] = useState(!persistedProps)
+  const [propertiesLoading, setPropertiesLoading] = useState(!persisted.propsFresh)
   const [propertiesError, setPropertiesError]     = useState<string | null>(null)
 
   // ── Messages state ───────────────────────────────────────────────────────
   const [messages, setMessages]               = useState<Message[]>(persistedMsgs?.data ?? [])
-  const [messagesLoading, setMessagesLoading] = useState(!persistedMsgs)
+  const [messagesLoading, setMessagesLoading] = useState(!persisted.msgsFresh)
   const [messagesError, setMessagesError]     = useState<string | null>(null)
 
   const initialLoadDone = useRef(!!persistedDash)
-  const intervalRef     = useRef<ReturnType<typeof setInterval> | null>(null)
+  // Event-triggered reloads share the mounted effect's cancellation lifetime.
+  const requestLifetime = useRef<AbortController | null>(null)
 
   // ── Apply dashboard cache ────────────────────────────────────────────────
   const applyDashCache = useCallback((data: RawDashboardData) => {
@@ -171,69 +120,62 @@ export function DashboardCacheProvider({ children }: { children: React.ReactNode
   }, [])
 
   // ── Full load — dashboard ────────────────────────────────────────────────
-  const doInitialLoad = useCallback(async () => {
-    setLoading(true)
-    setError(null)
-    try {
-      const data = await fetchDashboard('1m')
+  const doInitialLoad = useCallback((signal?: AbortSignal) => {
+    return fetchDashboard('1m').then((data) => {
+      if (signal?.aborted) return
       applyDashCache(data)
       initialLoadDone.current = true
-    } catch (err: unknown) {
+    }).catch((err: unknown) => {
+      if (signal?.aborted) return
       setError(err instanceof Error ? err.message : 'Failed to load dashboard')
-    } finally {
-      setLoading(false)
-    }
+    }).finally(() => {
+      if (!signal?.aborted) setLoading(false)
+    })
   }, [applyDashCache])
 
   // ── Full load — properties ───────────────────────────────────────────────
-  const doLoadProperties = useCallback(async () => {
-    setPropertiesLoading(true)
-    setPropertiesError(null)
-    try {
-      const data = await fetchProperties()
+  const doLoadProperties = useCallback((signal?: AbortSignal) => {
+    return fetchProperties().then((data) => {
+      if (signal?.aborted) return
       setProperties(data)
       saveToStorage(LS_KEY_PROPERTIES, data, Date.now())
-    } catch (err: unknown) {
+    }).catch((err: unknown) => {
+      if (signal?.aborted) return
       setPropertiesError(err instanceof Error ? err.message : 'Failed to load properties')
-    } finally {
-      setPropertiesLoading(false)
-    }
+    }).finally(() => {
+      if (!signal?.aborted) setPropertiesLoading(false)
+    })
   }, [])
 
   // ── Full load — messages ─────────────────────────────────────────────────
-  const doLoadMessages = useCallback(async () => {
-    setMessagesLoading(true)
-    setMessagesError(null)
-    try {
-      const data = await fetchMessages()
+  const doLoadMessages = useCallback((signal?: AbortSignal) => {
+    return fetchMessages().then((data) => {
+      if (signal?.aborted) return
       setMessages(data)
       saveToStorage(LS_KEY_MESSAGES, data, Date.now())
-    } catch (err: unknown) {
+    }).catch((err: unknown) => {
+      if (signal?.aborted) return
       setMessagesError(err instanceof Error ? err.message : 'Failed to load messages')
-    } finally {
-      setMessagesLoading(false)
-    }
+    }).finally(() => {
+      if (!signal?.aborted) setMessagesLoading(false)
+    })
   }, [])
 
   // ── Background refresh — always runs silently, never sets loading=true ───
   // This is called both on mount (to immediately correct stale cache) and on
-  // the periodic interval. It merges fresh data into the existing cache so
-  // the UI updates without any loading flicker.
-  const doBackgroundRefresh = useCallback(async () => {
+  // the periodic interval. Preserve the existing replacement/ID comparison
+  // semantics here; cache completeness is separate contract work.
+  const doBackgroundRefresh = useCallback(async (signal?: AbortSignal) => {
     if (!initialLoadDone.current) return
-    try {
-      const fresh = await fetchDashboard(INCREMENTAL_WINDOW)
-      setCache(() => {
-        const now = Date.now()
-        setCachedAt(now)
-        saveToStorage(LS_KEY_DASHBOARD, fresh, now)
-        return fresh
-      })
-    } catch {
+    await fetchDashboard(INCREMENTAL_WINDOW).then((fresh) => {
+      if (signal?.aborted) return
+      applyDashCache(fresh)
+    }).catch(() => {
       // Silently ignore — stale cache is still shown
-    }
-    try {
-      const [freshProps, freshMsgs] = await Promise.all([fetchProperties(), fetchMessages()])
+    })
+    if (signal?.aborted) return
+    await Promise.all([fetchProperties(), fetchMessages()]).then(([freshProps, freshMsgs]) => {
+      if (signal?.aborted) return
 
       setProperties((prev) => {
         const freshIds = new Set(freshProps.map((p) => p.id))
@@ -254,52 +196,52 @@ export function DashboardCacheProvider({ children }: { children: React.ReactNode
         }
         return prev
       })
-    } catch {
+    }).catch(() => {
       // Silently ignore
-    }
-  }, [])
+    })
+  }, [applyDashCache])
 
   // ── On mount ─────────────────────────────────────────────────────────────
   useEffect(() => {
-    const now = Date.now()
+    const controller = new AbortController()
+    requestLifetime.current = controller
 
-    if (persistedDash && now - persistedDash.cachedAt < CACHE_STALE_MS) {
+    if (persisted.dashFresh) {
       // Cache is fresh enough to show immediately — but still kick off a
       // background refresh right away so unverified leads / status changes
       // are reflected without waiting for the 60s interval.
-      initialLoadDone.current = true
-      setLoading(false)
-      doBackgroundRefresh()
+      void doBackgroundRefresh(controller.signal)
     } else {
       // Cache is missing or stale — do a full blocking load
-      doInitialLoad()
+      void doInitialLoad(controller.signal)
     }
 
-    if (persistedProps && now - persistedProps.cachedAt < CACHE_STALE_MS) {
-      setPropertiesLoading(false)
-      // Still refresh properties in the background via doBackgroundRefresh above
-    } else {
-      doLoadProperties()
+    if (!persisted.propsFresh) {
+      void doLoadProperties(controller.signal)
     }
 
-    if (persistedMsgs && now - persistedMsgs.cachedAt < CACHE_STALE_MS) {
-      setMessagesLoading(false)
-      // Still refresh messages in the background via doBackgroundRefresh above
-    } else {
-      doLoadMessages()
+    if (!persisted.msgsFresh) {
+      void doLoadMessages(controller.signal)
     }
 
     // Periodic interval — runs every 60s after the initial mount refresh
-    intervalRef.current = setInterval(doBackgroundRefresh, REFRESH_INTERVAL_MS)
+    const interval = setInterval(() => { void doBackgroundRefresh(controller.signal) }, REFRESH_INTERVAL_MS)
     return () => {
-      if (intervalRef.current) clearInterval(intervalRef.current)
+      controller.abort()
+      clearInterval(interval)
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+  }, [persisted, doBackgroundRefresh, doInitialLoad, doLoadProperties, doLoadMessages])
 
   // ── Public reload (manual) ───────────────────────────────────────────────
   const reload = useCallback(async () => {
-    await Promise.all([doInitialLoad(), doLoadProperties(), doLoadMessages()])
+    setLoading(true)
+    setError(null)
+    setPropertiesLoading(true)
+    setPropertiesError(null)
+    setMessagesLoading(true)
+    setMessagesError(null)
+    const signal = requestLifetime.current?.signal
+    await Promise.all([doInitialLoad(signal), doLoadProperties(signal), doLoadMessages(signal)])
   }, [doInitialLoad, doLoadProperties, doLoadMessages])
 
   // ── Optimistic: add property ─────────────────────────────────────────────
@@ -409,12 +351,4 @@ export function DashboardCacheProvider({ children }: { children: React.ReactNode
       {children}
     </DashboardCacheContext.Provider>
   )
-}
-
-// ---------------------------------------------------------------------------
-// Hook
-// ---------------------------------------------------------------------------
-
-export function useDashboardCache() {
-  return useContext(DashboardCacheContext)
 }

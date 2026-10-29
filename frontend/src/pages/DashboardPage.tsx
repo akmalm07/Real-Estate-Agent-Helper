@@ -41,7 +41,7 @@ import type {
   ActivityType,
 } from '../lib/dashboardTransformer'
 
-import { useDashboardCache } from '../context/DashboardCacheContext'
+import { useDashboardCache } from '../hooks/useDashboardCache'
 
 // ---------------------------------------------------------------------------
 // Activity icon

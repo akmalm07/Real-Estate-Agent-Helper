@@ -10,7 +10,7 @@ import { ErrorState } from '../components/ui/ErrorState'
 import { EmptyState } from '../components/ui/EmptyState'
 import { Search, MessageSquare, Send, Mail, Phone } from 'lucide-react'
 import { formatRelativeTime, getInitials } from '../lib/utils'
-import { useDashboardCache } from '../context/DashboardCacheContext'
+import { useDashboardCache } from '../hooks/useDashboardCache'
 import { searchAndRank, getHighlightSegments, useDebounce } from '../lib/searchUtils'
 
 // ---------------------------------------------------------------------------

@@ -12,7 +12,7 @@ import {
   ShieldAlert, AlertTriangle, CheckCircle2, Trash2,
 } from 'lucide-react'
 import { formatRelativeTime, getInitials } from '../lib/utils'
-import { useDashboardCache } from '../context/DashboardCacheContext'
+import { useDashboardCache } from '../hooks/useDashboardCache'
 import { searchAndRank, useDebounce } from '../lib/searchUtils'
 import { sortItems, toggleSort } from '../lib/tableSortUtils'
 import type { SortState } from '../lib/tableSortUtils'
@@ -82,7 +82,7 @@ export function LeadsPage() {
   // Build property options for the modal, ensuring `address` is always a
   // non-empty string so the dropdown label is never blank.
   const propertyOptions = useMemo(() => properties.map((p) => {
-    const raw = p as any
+    const raw: { addressLine1?: string | null; address?: string | null } = p
     const address = (raw.addressLine1 ?? raw.address ?? '').trim()
     return {
       id:           String(p.id),

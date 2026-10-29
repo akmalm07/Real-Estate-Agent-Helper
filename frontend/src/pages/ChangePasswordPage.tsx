@@ -1,13 +1,16 @@
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 import { useSearchParams, useNavigate } from 'react-router-dom'
 import { BACKEND_URL } from '../consts'
 
 export function ChangePasswordPage() {
   const [searchParams] = useSearchParams()
-  const navigate = useNavigate()
-
   const token = searchParams.get('token')
   const changePassword = searchParams.get('changePassword')
+  return <ChangePasswordForm key={JSON.stringify([token, changePassword])} token={token} changePassword={changePassword} />
+}
+
+function ChangePasswordForm({ token, changePassword }: { token: string | null; changePassword: string | null }) {
+  const navigate = useNavigate()
 
   const [newPassword, setNewPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
@@ -16,13 +19,6 @@ export function ChangePasswordPage() {
 
   // Guard: if the URL params are missing or invalid, show an error immediately
   const isValidLink = !!token && changePassword === 'true'
-
-  useEffect(() => {
-    if (!isValidLink) {
-      setStatus('error')
-      setErrorMessage('This password reset link is invalid or has expired. Please request a new one.')
-    }
-  }, [isValidLink])
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
