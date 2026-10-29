@@ -1,60 +1,107 @@
-import { Link } from 'react-router-dom'
-import { Button } from '../components/ui/Button'
-import { Card } from '../components/ui/Card'
-import { Sparkles, ShieldCheck, FileText } from 'lucide-react'
+import { useState } from 'react';
+import { Link } from 'react-router-dom';
 
 export default function HomePage() {
+  const [imageUnavailable, setImageUnavailable] = useState(false);
+
   return (
-    <div className="min-h-screen bg-gray-50 flex flex-col justify-center items-center py-12 sm:px-6 lg:px-8">
-      <div className="max-w-4xl mx-auto text-center">
-        <Sparkles className="mx-auto h-16 w-16 text-indigo-600" />
-        <h1 className="mt-4 text-4xl font-extrabold text-gray-900 sm:text-5xl sm:tracking-tight lg:text-6xl">
-          Welcome to Your AI-Powered Platform
-        </h1>
-        <p className="mt-6 text-xl text-gray-500">
-          Streamline your workflow, manage leads, and automate your communication with intelligent tools designed for real estate professionals.
-        </p>
-        <div className="mt-10 flex flex-col sm:flex-row justify-center gap-4">
-          <Button variant="primary" size="lg" className="px-8 py-3">
-            <Link to="/login">Get Started</Link>
-          </Button>
-          <Button variant="secondary" size="lg" className="px-8 py-3">
-            <Link to="/signup">Learn More</Link>
-          </Button>
-        </div>
-      </div>
+    <div className="journal">
+      <a className="journal-skip" href="#main-content">Skip to content</a>
 
-      <div className="mt-20 w-full max-w-6xl grid grid-cols-1 md:grid-cols-3 gap-8 px-4">
-        <Card className="flex flex-col items-center p-6 text-center">
-          <ShieldCheck className="h-10 w-10 text-green-500 mb-4" />
-          <h3 className="text-xl font-semibold text-gray-900 mb-2">Secure & Reliable</h3>
-          <p className="text-gray-600">
-            Your data is protected with industry-leading security measures. Trust in a platform built for stability.
-          </p>
-        </Card>
-        <Card className="flex flex-col items-center p-6 text-center">
-          <Sparkles className="h-10 w-10 text-indigo-500 mb-4" />
-          <h3 className="text-xl font-semibold text-gray-900 mb-2">Smart Automation</h3>
-          <p className="text-gray-600">
-            Leverage AI to automate tedious tasks, allowing you to focus on what matters most.
-          </p>
-        </Card>
-        <Card className="flex flex-col items-center p-6 text-center">
-          <FileText className="h-10 w-10 text-blue-500 mb-4" />
-          <h3 className="text-xl font-semibold text-gray-900 mb-2">Lead Management</h3>
-          <p className="text-gray-600">
-            Efficiently track, nurture, and convert your leads with our intuitive lead management system.
-          </p>
-        </Card>
-      </div>
+      <header className="journal-masthead journal-container">
+        <Link to="/" className="journal-wordmark" aria-label="RealCRM home">RealCRM</Link>
+        <p className="journal-masthead-note">A workspace for real estate</p>
+        <nav aria-label="Main navigation">
+          <a href="#workspace">The workspace</a>
+          <Link to="/login">Sign in <span aria-hidden="true">↗</span></Link>
+        </nav>
+      </header>
 
-      <div className="mt-20 text-center text-gray-500 text-sm">
-        <p>&copy; {new Date().getFullYear()} Your Company. All rights reserved.</p>
-        <div className="mt-2 space-x-4">
-          <Link to="/terms" className="hover:underline">Terms of Service</Link>
-          <Link to="/privacy" className="hover:underline">Privacy Policy</Link>
-        </div>
-      </div>
+      <main id="main-content" tabIndex={-1} className="journal-container">
+        <section className="journal-hero" aria-labelledby="home-title">
+          <div className="journal-hero-copy">
+            <p className="journal-eyebrow">Real estate, in context</p>
+            <h1 id="home-title">Keep the people.<br />Keep the context.</h1>
+            <p className="journal-deck">
+              Behind every property is a conversation. Keep lead details, notes and
+              property records together, so you can pick up where you left off.
+            </p>
+            <div className="journal-actions">
+              <Link className="journal-primary-link" to="/login">
+                Sign in to RealCRM <span aria-hidden="true">↗</span>
+              </Link>
+              <a className="journal-text-link" href="#workspace">
+                Explore the workspace <span aria-hidden="true">↓</span>
+              </a>
+            </div>
+            <p className="journal-account-note">New here? Choose Sign Up on the sign-in page.</p>
+          </div>
+
+          <figure className="journal-figure">
+            <p className="journal-folio">In perspective <span>Architecture</span></p>
+            <div className="journal-photo-frame">
+              {imageUnavailable ? (
+                <div className="journal-photo-fallback">
+                  <p className="journal-eyebrow">Architecture / Editorial</p>
+                  <p>Room for a different perspective.</p>
+                  <span>The photograph is unavailable. Your workspace is still a sign-in away.</span>
+                </div>
+              ) : (
+                <img
+                  src="/images/campus-north-mx-granger.webp"
+                  alt="White residential campus buildings around a leafy courtyard beneath a blue sky."
+                  width={1400}
+                  height={1050}
+                  loading="eager"
+                  fetchPriority="high"
+                  decoding="async"
+                  onError={() => setImageUnavailable(true)}
+                />
+              )}
+            </div>
+            <figcaption>
+              <span>Campus North Residential Commons, University of Chicago.</span>
+              <span>Mx. Granger / Wikimedia Commons / CC0.<br />Editorial photograph. Not a property listing. No affiliation or endorsement.</span>
+            </figcaption>
+          </figure>
+        </section>
+
+        <section id="workspace" className="journal-workspace" aria-labelledby="workspace-title">
+          <div className="journal-introduction">
+            <p className="journal-eyebrow">The workspace</p>
+            <h2 id="workspace-title">A place for the details that matter.</h2>
+            <p>
+              Start with the dashboard for an overview, then move into the people,
+              properties and conversations behind your day.
+            </p>
+            <Link to="/login" className="journal-text-link">
+              Open your workspace <span aria-hidden="true">↗</span>
+            </Link>
+          </div>
+          <dl className="journal-workflow">
+            <div>
+              <dt>Know the person</dt>
+              <dd>Keep contact information, lead details, status and notes in one record.</dd>
+            </div>
+            <div>
+              <dt>Keep the property in view</dt>
+              <dd>Review and manage property records alongside your lead work.</dd>
+            </div>
+            <div>
+              <dt>Return to the conversation</dt>
+              <dd>Read conversations and refer back to the details before your next reply.</dd>
+            </div>
+          </dl>
+        </section>
+      </main>
+
+      <footer className="journal-footer journal-container">
+        <p>RealCRM <span>People. Properties. Conversations.</span></p>
+        <nav aria-label="Legal">
+          <Link to="/terms">Terms of Service</Link>
+          <Link to="/privacy">Privacy Policy</Link>
+        </nav>
+      </footer>
     </div>
-  )
+  );
 }
