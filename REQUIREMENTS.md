@@ -1,9 +1,9 @@
 # Real Estate Agent Helper — repair and verification
 
-Status: APPROVED by the user's execution request on 2026-10-29; implementation requires the matching factory scope lock.
+Status: APPROVED by the user's execution request and explicit frontend-design expansion on 2026-10-29; implementation requires the matching factory scope lock.
 
 ## Purpose
-Make the existing real estate lead-management application functional, repairing demonstrated defects rather than redesigning or adding speculative features.
+Make the existing real estate lead-management application functional, repair demonstrated defects, and give the existing frontend a distinctive, creative real-estate visual identity with purposeful photography. Preserve existing product capabilities and architecture; do not add speculative features.
 
 ## Project
 - Repository: GitHub.com/akmalm07/real-estate-agent-helper (GitHub canonical casing: akmalm07/Real-Estate-Agent-Helper).
@@ -20,9 +20,12 @@ Make the existing real estate lead-management application functional, repairing 
 - Establish a repeatable isolated test database/runtime without production data. Deterministic doubles may be used at unavailable external boundaries, including AI if credentials are missing; identify these boundaries and never call them live integration verification.
 - Install ordinary local project/test dependencies and fix reproducible install/build/lint/test/startup failures without unnecessary major upgrades. Do not execute cloud provisioning or deployment scripts.
 - Use small serialized Kanban tasks assigned to mvp-coder, independent verification by mvp-reviewer, a feature branch, and a GitHub PR. Manager coordinates and does not implement application code.
+- Design expansion authorized by the user on 2026-10-29: redesign the existing public and authenticated frontend so it does not resemble a generic AI-generated SaaS template. Add purposeful pictures, original composition, deliberate typography, coherent colors and spacing, and responsive, accessible interactions. Keep the CRM fast and legible; do not decorate away useful controls or invent metrics/testimonials/listing data.
+- Manager-selected, adjustable creative default (not a user-specified brand): an editorial property-journal direction with warm neutral surfaces, deep ink/forest accents, restrained serif display headings and readable sans-serif working UI, architectural/residential photography, asymmetrical public-page composition, and compact task-oriented CRM screens. No imitation of a named company's identity, generic violet-gradient hero, icon-tile filler, or glassmorphism by default.
+- Use existing suitable assets or appropriately licensed free imagery with recorded source/license/attribution. Prefer optimized locally served assets, appropriate alt text, dimensions and loading behavior. Stock photos may be editorial illustrations only: never imply they depict a real user's property. Existing user data/photos take precedence; absent property photos get an honest designed fallback. No paid assets, new image-upload service, new photo data model or external account is authorized.
 
 ## Out of scope
-- Architectural rebuilds, speculative features, unimplemented Outlook/new CRM expansions, broad redesigns and unrelated refactoring.
+- Architectural rebuilds, speculative features, unimplemented Outlook/new CRM expansions, backend/data-model redesigns and unrelated refactoring. The explicitly authorized frontend visual redesign is in scope.
 - Live email/SMS/calls, production-data mutations, cloud provisioning/deployment, IAM/billing changes, paid-service activation, destructive remote operations, force pushes, merge or direct commits to main.
 - Invented passing tests, synthetic responses represented as live-provider results, or exhaustive-coverage claims without an explicit feature matrix.
 
@@ -34,6 +37,7 @@ Make the existing real estate lead-management application functional, repairing 
 5. Relevant regression tests and full available suites execute against the final candidate. Record exact commands, exit codes, runtime prerequisites and access gaps in docs/VERIFICATION.md. Commit synthetic fixtures only, no credentials/private data.
 6. mvp-reviewer independently reviews and reruns available acceptance checks against the exact candidate commit. Return findings to the coder; repair accessible failures rather than weakening tests.
 7. Push a feature branch and create a PR targeting main in the existing repository, including summary, evidence, simulation instructions and honest limitations. Read back exact remote head, PR state and CI. No merge authorized.
+8. Existing public/auth/onboarding screens, shared navigation/components, dashboard, leads/detail, properties, messages and settings receive a coherent original visual treatment while preserving their real workflows. Capture and inspect before/after browser screenshots at mobile and desktop sizes, test keyboard/focus, reduced motion, readable contrast, empty/loading/error/populated states, and verify image loading/fallback and no horizontal overflow. Label any fixture-driven visual preview separately from genuine authenticated end-to-end acceptance. Full build/lint/regression checks still pass; mvp-reviewer independently reviews screenshots and actual interactions against the exact final candidate. Include image provenance and visual evidence in docs; final functional testing follows all visual changes.
 
 ## Deployment
 No deployment authorized. Preserve Google Cloud and Google services configuration/implementation. Inspect credential presence only, never values. Ask the user only about newly discovered blocking product choices, required missing access or costly/irreversible actions; continue other safe work. Checkpoint provider rate limits for durable queue retry, without repeated probing.

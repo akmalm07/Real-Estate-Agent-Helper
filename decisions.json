@@ -19,7 +19,15 @@
     "D005.blockers": {
       "answer": "User asks to resolve challenges when blocked and message them for problems. Continue safe independent checks; ask only for necessary missing access, blocking product ambiguity or costly/irreversible actions. No production changes or spending authorization.",
       "at": "2026-10-29T18:39:13.015225+00:00"
+    },
+    "D006.visual-expansion": {
+      "answer": "User explicitly requested fixing the design/frontend to avoid a generic vibe-coded appearance, adding pictures and more creativity. This authorizes original frontend visual redesign, not new product features, backend architecture changes or paid assets. Existing functional repairs and Google preservation remain required.",
+      "at": "2026-10-29T19:26:05.399119+00:00"
+    },
+    "D007.creative-default": {
+      "answer": "Manager-selected adjustable implementation default, not a user-confirmed brand preference: editorial real-estate/property-journal aesthetic, purposeful licensed architectural photography, warm neutrals/deep ink/forest, deliberate serif/sans hierarchy, asymmetrical public composition and compact operable CRM. Preserve genuine data, all controls and accessible responsive states; never assign stock photos to real listings as if authentic.",
+      "at": "2026-10-29T19:26:05.485315+00:00"
     }
   },
-  "last_updated": "2026-10-29T18:39:13.015237+00:00"
+  "last_updated": "2026-10-29T19:26:05.485327+00:00"
 }
