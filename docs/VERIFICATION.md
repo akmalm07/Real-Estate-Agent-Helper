@@ -322,3 +322,218 @@ must rerun Node22 lint, full build and lifecycle tests, inspect state/draft/clea
 regressions and scoped manifest, and keep deferred contracts/final app acceptance
 separate. No pre-created review child exists; the visual child is not itself a
 review, so this card uses same-card native review rather than completing early.
+
+## PostgreSQL fresh-schema bootstrap — t_9d4a7723 (2026-10-30)
+
+Scoped, uncommitted worker implementation on `fix/functional-repair`. Supervisor
+evidence `.db-bootstrap-audit/supervisor-*` was only read and is preserved. No
+staging, commit, push, PR, other agent, cloud call, dependency install, lock edit,
+provider test, app-driver change or authority/instruction-file edit was performed.
+
+Changed paths (this task only):
+
+- `backend/db/migrations/0000_initial_schema.sql`
+- `backend/db/migrations/bootstrap.sql`
+- `backend/db/migrations/0001_add_property_details.sql`
+- `backend/db/drizzle.config.js` (proven CWD-path correction only)
+- `backend/package.json` (one explicit `db:bootstrap:test` script)
+- `backend/test/schema-bootstrap.test.js`
+- `backend/test/schema-bootstrap.fixture.sql`
+- `backend/test/schema-bootstrap.config-check.js`
+- `docs/LOCAL-SETUP.md`
+- `docs/VERIFICATION.md` (this appended section only)
+
+### Exact worker commands and results
+
+Commands are from root unless noted. Cached Node executable below reports
+v22.22.0 (also recorded by the config RED exception). No download/install needed.
+All regression executions explicitly remove inherited DATABASE_URL; child commands
+also remove it. No actual dotenv is loaded by the tests.
+
+| Command | Exit / evidence |
+|---|---|
+| `env -u DATABASE_URL REAH_BOOTSTRAP_CONTAINER=reah-bootstrap-t9d4a7723-r37 /root/.npm/_npx/6d82ddbdd7da268b/node_modules/node/bin/node --test backend/test/schema-bootstrap.test.js` before migration edits | **1 RED**, real psql exit3: invalid property_source_type `unknown`; `.db-bootstrap-audit/worker-red.log` |
+| `env -u DATABASE_URL /root/.npm/_npx/6d82ddbdd7da268b/node_modules/node/bin/node --experimental-test-module-mocks backend/test/schema-bootstrap.config-check.js` before config edit | **1 RED**, CWD-relative dotenv path differs from intended absolute backend/.env; `.db-bootstrap-audit/worker-config-red.log` |
+| Same config-check command after config edit | **0**, root/backend paths stable, actual dotenv mocked; `.db-bootstrap-audit/worker-config-green.log` |
+| Same root regression command after final test/fixture edits | **0**, 1 real-SQL integration test passed; `.db-bootstrap-audit/worker-green-root-final.log` |
+| Backend CWD: `env -u DATABASE_URL PATH=/root/.npm/_npx/6d82ddbdd7da268b/node_modules/node/bin:$PATH REAH_BOOTSTRAP_CONTAINER=reah-bootstrap-t9d4a7723-r37 npm run db:bootstrap:test` after final edits | **0**, only explicit schema test executed; `.db-bootstrap-audit/worker-green-backend-final.log` |
+| `env -u DATABASE_URL -u REAH_BOOTSTRAP_CONTAINER /root/.npm/_npx/6d82ddbdd7da268b/node_modules/node/bin/node --test backend/test/schema-bootstrap.test.js` | **1 expected**, fails opt-in assertion before Docker/database commands; `.db-bootstrap-audit/worker-no-container.log` |
+| `env -u DATABASE_URL REAH_BOOTSTRAP_CONTAINER=not-the-task-container /root/.npm/_npx/6d82ddbdd7da268b/node_modules/node/bin/node --test backend/test/schema-bootstrap.test.js` | **1 expected**, rejects wrong name before Docker/database commands; `.db-bootstrap-audit/worker-wrong-container.log` |
+
+The harness validates container name, task label, cached image, running status,
+network none/no ports, tmpfs PGDATA and no container DATABASE_URL before SQL. Only
+`reah-bootstrap-t9d4a7723-r37` is used. psql always uses `-X`, `ON_ERROR_STOP=1`,
+postgres user and the container Unix socket. Each passing run creates five new
+synthetic databases (reference, fresh, already-current, table-partial, enum-partial)
+and retains them; their random names are printed in the worker logs.
+
+Checks executed against genuine PostgreSQL17.7:
+
+- Offline installed Drizzle export from unchanged schema.js applied to a separate
+  reference database: 13 tables/14 enums. Migration0001 leaves its schema unchanged.
+- Fresh psql recipe creates an exactly equal complete schema-only pg_dump: all
+  enums/values, columns/types/defaults, sequences, FKs/delete behavior, checks,
+  unique constraints and indexes. Only random pg_dump restriction tokens removed.
+- All 13 tables receive synthetic fixtures; user/property/lead/note/task joined
+  reads include both conversation channels and real email/SMS records.
+- zillow/realtor/listing property sources insert; omitted source defaults listing.
+  Invalid enum is SQLSTATE22P02, invalid FKs23503, duplicate unique23505,
+  missing not-null23502 and all six schema checks23514.
+- Transaction rollback leaves zero rows in every table. Committed fixture data
+  and sequence dumps are byte-equal before/after recipe reruns, both on freshly
+  bootstrapped and independently exported already-current schemas.
+- Table-only and enum-only partial schemas fail psql exit3 unchanged. The recipe
+  is transactional and has a limited shape guard, not full drift validation.
+
+### Boundaries and handoff
+
+See LOCAL-SETUP.md for safe commands/prerequisites and operator cleanup limitation.
+No database/schema/table DROP, truncate, docker stop/rm/kill, reset or baseline
+service reuse occurred. Databases/SQL copies remain in the isolated task container;
+authorized operator cleanup is required. No credentials are logged. Earlier
+supervisor missing-table REDs remain independent evidence; the worker's pre-edit
+RED independently reproduces the enum failure, not a fresh missing-table rerun.
+
+This verifies SQL bootstrap only, not app CRUD through Neon HTTP, backend startup,
+provider delivery, frontend gates or API/browser acceptance. Supervisor owns those
+separate gates and immediate native reviewer handoff; no review approval is claimed.
+Model exposed by harness: OpenAI GPT-6.1 Sol (`openai/gpt-6.1-sol`); token/cost totals
+are not exposed to this worker and are not invented.
+
+## Final narrow repair — t_9d4a7723 (2026-10-30)
+
+This follow-up changed only `backend/test/schema-bootstrap.test.js`,
+`docs/LOCAL-SETUP.md`, and this appended section. No staging, commit, push, cloud or
+provider calls, or container lifecycle cleanup occurred. The prior section and its
+raw logs are preserved. Repair attempt 1 exited 0 but made no edits and ran no
+tests: its patch was invalid because the added `done` line lacked a leading `+`
+and continuation lines were overescaped. This was patch-construction syntax, not
+a quota issue.
+
+The test now requires a string container name matching
+`/^reah-bootstrap-t9d4a7723-[a-z0-9-]+$/`; all existing task-label, image, network,
+ports, tmpfs, PGDATA and no-DATABASE_URL guards remain unchanged. Setup documentation
+checks for the cached image before describing a uniquely named `docker run -d`,
+bounded readiness check, dynamically named opt-in and direct SQL bootstrap recipe.
+It explicitly describes `r37` as historical evidence, not a fixed requirement.
+The documentation is a supervisor recipe, not evidence that a new-name container
+was created or verified.
+
+### Exact executed command and result
+
+From repository root:
+
+| Command | Exit / evidence |
+|---|---|
+| `env -u DATABASE_URL REAH_BOOTSTRAP_CONTAINER=reah-bootstrap-t9d4a7723-r37 npm exec --offline --package=node@22.22.0 -- node --test backend/test/schema-bootstrap.test.js > .db-bootstrap-audit/repair2-worker-sql.log 2>&1` | **0**, 1 real PostgreSQL SQL regression passed; five synthetic databases retained; raw output preserved at `.db-bootstrap-audit/repair2-worker-sql.log` |
+
+This is the requested existing-container SQL regression only. No result is claimed
+for a newly named container. Test database and SQL-copy retention/cleanup limitations
+remain as documented above; no destructive cleanup was attempted.
+
+## Supervisor final SQL verification / recovery — t_9d4a7723 (2026-10-30)
+
+The preceding worker sections are chronological records, not the final candidate
+status. Run37 exhausted its 30-turn orchestration budget, not a demonstrated server
+crash or provider quota. Run38 preserved its ten-path candidate. One implementation
+and two repair runs total; repair1 made no edits, repair2 exited0 and its completed
+files were independently inspected. No third coding run or baseline restart.
+
+### Isolation, prerequisites and original failures
+
+`factoryctl status real-estate-agent-helper` returned0 / Scope valid True against
+external lock `/root/factory/state/locks/real-estate-agent-helper.json` in both
+runs. Branch/base before candidate: `fix/functional-repair` /
+`1b7d3e7e9089d939bde9a773781f1428dd4a64d7`. Docker daemon29.1.3,
+cached `postgres:17.7-alpine`, container psql17.7, installed backend dependencies
+and cached Node22.22.0 were available; no dependency install/image pull required.
+
+Before source edits, supervisor used only task-owned `reah-bootstrap-t9d4a7723-r37`
+(label `task=t_9d4a7723`, network none, no ports, tmpfs PGDATA). Original commands
+`docker exec -i reah-bootstrap-t9d4a7723-r37 psql -X -v ON_ERROR_STOP=1 -U postgres -h /var/run/postgresql -d reah_bootstrap`
+with original migration0001 then0002 supplied on stdin each returned3 on an empty
+schema: missing properties/leads. Offline Drizzle export and application to that
+synthetic DB returned0; original0001 then returned3 for invalid enum `unknown`.
+Raw logs: `.db-bootstrap-audit/supervisor-{red-0001,red-0002,red-default}.log`.
+These are adopted pre-edit evidence, not newly repeated baseline tests.
+
+### Final commands and actual results
+
+Supervisor created unique `reah-bootstrap-t9d4a7723-clean-52cbc4815704` with the
+LOCAL-SETUP.md recipe (`--label task=t_9d4a7723 --network none --tmpfs
+/var/lib/postgresql/data`, synthetic trust auth, no ports/volumes); creation and
+readiness returned0. Docker inspect and the test guards confirmed its ownership,
+image, network, ports and tmpfs. DATABASE_URL was removed from harness/child
+environments; psql uses the container Unix socket, never any inherited URL or app
+DB module. No actual dotenv loaded by the harness. All fixtures are synthetic;
+no real provider credentials, private user records or production data used.
+
+Root unless otherwise noted; Node commands use cached
+`npm exec --offline --package=node@22.22.0 --`:
+
+| Exact command / context | Exit / evidence |
+|---|---|
+| `env -u DATABASE_URL REAH_BOOTSTRAP_CONTAINER=reah-bootstrap-t9d4a7723-clean-52cbc4815704 npm exec --offline --package=node@22.22.0 -- node --test backend/test/schema-bootstrap.test.js` | 0, final run38 1/1 genuine-SQL integration pass; `.db-bootstrap-audit/recovery-root-sql.log` |
+| Backend CWD, same URL removal/container: `npm exec --offline --package=node@22.22.0 -- npm run db:bootstrap:test` | 0, final run37 after repair2; `.db-bootstrap-audit/supervisor-final-backend-sql.log` |
+| Clean source CWD `.db-bootstrap-audit/clean-source-52cbc4815704`, same root test command/environment | 0; `.db-bootstrap-audit/supervisor-clean-source-sql.log`. Created by `git archive HEAD`, extraction, overlay of exactly ten candidate files; only installed backend/node_modules symlinked. No env/audit/untracked app files inherited. Run38 `cmp` confirmed all eight executable/config/SQL/manifest candidate files identical to this clean-source snapshot. |
+| Same harness without opt-in / with `REAH_BOOTSTRAP_CONTAINER=not-the-task-container` | 1 / 1 expected, rejected before DB commands; `.db-bootstrap-audit/supervisor-{no-container,wrong-container}.log` |
+| Frontend CWD: `npm exec --offline --package=node@22.22.0 -- npm test` | 0, run38 61/61; `.db-bootstrap-audit/recovery-frontend-tests.log` |
+| Frontend CWD: `npm exec --offline --package=node@22.22.0 -- npm run lint` | 0, run38; no rules disabled |
+| Frontend CWD: `npm exec --offline --package=node@22.22.0 -- npm exec -- tsc -b --force` | 0, run38 forced typecheck |
+| Frontend CWD: `npm exec --offline --package=node@22.22.0 -- npm run build` | 0, run38 tsc + Vite, 1672 modules |
+| `npm exec --offline --package=node@22.22.0 -- node --experimental-test-module-mocks --import ./.db-bootstrap-audit/supervisor-safe-scoring.mjs --test backend/test/lead-scoring.test.js` | 0, adopted run37 53/53; `.db-bootstrap-audit/supervisor-scoring-tests.log`. Only unused AI import replaced and fetch forbidden; pure scoring/unit evidence, not unchanged provider integration. Relevant source/test files unchanged at run38 readback. |
+| `node .build-gate-audit/inspect-bundle.mjs` | 0, adopted run37 ephemeral loopback static HTML/JS/CSS HTTP200 smoke; server closed. Rebuilt JS/CSS SHA256 match that smoke exactly in run38. Not browser/API acceptance. |
+
+Direct recipe executed from clean-source SQL, using container/database/directory
+names above (`C=reah-bootstrap-t9d4a7723-clean-52cbc4815704`,
+`D=reah_bootstrap_direct_52cbc4815704`,
+`S=/reah-bootstrap-direct-52cbc4815704`), with every command below returning0:
+
+```sh
+# CREATE DATABASE ... TEMPLATE template0 and mkdir had already returned0;
+# initial public table count was verified0 before this bootstrap.
+docker cp .db-bootstrap-audit/clean-source-52cbc4815704/backend/db/migrations/. "$C:$S"
+docker exec "$C" psql -X -v ON_ERROR_STOP=1 -U postgres -h /var/run/postgresql -d "$D" -f "$S/bootstrap.sql"
+docker exec "$C" psql -X -v ON_ERROR_STOP=1 -U postgres -h /var/run/postgresql -d "$D" -Atc "SELECT count(*) FROM pg_tables WHERE schemaname='public'; SELECT count(*) FROM pg_type WHERE typnamespace='public'::regnamespace AND typtype='e';"
+docker cp backend/test/schema-bootstrap.fixture.sql "$C:$S/fixture.sql"
+docker exec "$C" psql -X -v ON_ERROR_STOP=1 -U postgres -h /var/run/postgresql -d "$D" -c BEGIN -f "$S/fixture.sql" -c ROLLBACK -c 'SELECT count(*) AS users_after_rollback FROM users;'
+```
+
+Observed: COMMIT; 13 tables /14 enums; fixture inserts and all positive/negative
+SQL assertions succeed; ROLLBACK; users_after_rollback0. Raw successful outputs:
+`.db-bootstrap-audit/recovery-direct-{bootstrap,fixture-final}.log`.
+Earlier audit-helper copy incorrectly normalized away `/.`, nesting the directory:
+psql exit1 missing file. Corrected by executing the literal documented copy, no
+product repair. One shell fixture probe piped `more` headers and failed psql3 syntax
+error before inserts; replaced by file copy plus native psql `-c/-f` above. These
+failed harness probes are not passing product checks. Bare opencode export lookup
+returned127 due foreground PATH; explicit existing binary export returned0.
+Unattended arbitrary Python was denied before execution; not bypassed.
+
+### Candidate/data audit and review boundary
+
+The regression verifies complete schema dump parity to unchanged schema.js,
+relational joins, all valid property sources, enum/FK/unique/not-null/check
+rejections, rollback-to-zero tables, byte-identical committed fixture/sequence
+data on fresh/current reruns, and unchanged rejected partial schemas. Rerun
+support is empty/current only, not arbitrary historical/drifted-schema upgrades.
+
+Final candidate audit requires exact ten-path staged equality, protected
+requirements/instruction/schema/driver/lock/frontend files unchanged, append-only
+VERIFICATION.md, synthetic-only fixtures and bounded key/JWT/database-URL scans.
+Precommit tree/file SHA256/model usage metadata is prepared at
+`.db-bootstrap-audit/supervisor-candidate-metadata.json`; commit identity is supplied
+in the native reviewer handoff. No audit artifacts or unrelated existing untracked
+files are staged. No push, PR, merge, deployment, provider or production mutations.
+
+Memory checkpoint before limited final SQL: available580MiB, no swap; task tmpfs
+usage225.2MiB (unique container) /474.3MiB (r37). No extra container/server/editor
+started in recovery. Retained task resources remain, with no denied lifecycle
+cleanup retried and no previous denied-cleanup resources touched.
+
+Immediate same-card mvp-reviewer handoff must independently repeat a fresh isolated
+bootstrap and positive/negative SQL tests against the exact candidate. This is
+SQL/bootstrap-only; preserved Neon HTTP app driver, auth/API/browser integration,
+Google-shaped local email simulation, remaining core/message repairs, full feature
+matrix and final PR are later manager-routed milestones. Overall application goal
+is not complete and no review approval is claimed here.
