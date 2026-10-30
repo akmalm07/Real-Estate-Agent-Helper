@@ -21,7 +21,7 @@ function useFocusScope(ref: RefObject<HTMLElement | null>, active: boolean, onCl
     let branch: HTMLElement = scope
     while (branch.parentElement && branch !== document.body) {
       for (const sibling of branch.parentElement.children) {
-        if (sibling !== branch && sibling instanceof HTMLElement) {
+        if (sibling !== branch && sibling instanceof HTMLElement && !sibling.matches('[data-focus-scope-allow-click]')) {
           inerted.push({ node: sibling, inert: sibling.hasAttribute('inert') })
           sibling.setAttribute('inert', '')
         }

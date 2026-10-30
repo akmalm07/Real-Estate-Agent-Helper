@@ -1,0 +1,202 @@
+{
+  "classification": "SIMULATED-visual / NOT E2E",
+  "viewport": {
+    "width": 390,
+    "height": 1000
+  },
+  "settledCloseFocus": {
+    "present": true,
+    "focus": "Close lead dialog",
+    "inside": true,
+    "busy": null,
+    "workspaceInert": true,
+    "headerInert": true,
+    "client": 341,
+    "scroll": 341,
+    "child": 341,
+    "pageClient": 390,
+    "pageScroll": 390,
+    "disabled": []
+  },
+  "reverseWrap": {
+    "present": true,
+    "focus": "Add Lead",
+    "inside": true,
+    "busy": null,
+    "workspaceInert": true,
+    "headerInert": true,
+    "client": 341,
+    "scroll": 341,
+    "child": 341,
+    "pageClient": 390,
+    "pageScroll": 390,
+    "disabled": []
+  },
+  "forwardWrap": {
+    "present": true,
+    "focus": "Close lead dialog",
+    "inside": true,
+    "busy": null,
+    "workspaceInert": true,
+    "headerInert": true,
+    "client": 341,
+    "scroll": 341,
+    "child": 341,
+    "pageClient": 390,
+    "pageScroll": 390,
+    "disabled": []
+  },
+  "validation": [
+    {
+      "id": "lead-name",
+      "describedBy": "lead-name-error",
+      "associated": true
+    },
+    {
+      "id": "lead-email",
+      "describedBy": "lead-contact-error",
+      "associated": true
+    },
+    {
+      "id": "lead-phone",
+      "describedBy": "lead-contact-error",
+      "associated": true
+    },
+    {
+      "id": "lead-referrer",
+      "describedBy": "lead-referrer-error",
+      "associated": true
+    }
+  ],
+  "outsideClick": {
+    "present": true,
+    "focus": "Close lead dialog",
+    "inside": true,
+    "busy": null,
+    "workspaceInert": true,
+    "headerInert": true,
+    "client": 341,
+    "scroll": 341,
+    "child": 341,
+    "pageClient": 390,
+    "pageScroll": 390,
+    "disabled": []
+  },
+  "backgroundFocusAttempt": {
+    "present": true,
+    "focus": "Close lead dialog",
+    "inside": true,
+    "busy": null,
+    "workspaceInert": true,
+    "headerInert": true,
+    "client": 341,
+    "scroll": 341,
+    "child": 341,
+    "pageClient": 390,
+    "pageScroll": 390,
+    "disabled": []
+  },
+  "busy": {
+    "present": true,
+    "focus": "Skip to workspaceRealCRM /WorkspaceDashboardLeadsPropertiesM",
+    "inside": false,
+    "busy": "true",
+    "workspaceInert": true,
+    "headerInert": true,
+    "client": 341,
+    "scroll": 341,
+    "child": 341,
+    "pageClient": 390,
+    "pageScroll": 390,
+    "disabled": [
+      "Close lead dialog",
+      "Cancel",
+      "Adding Lead..."
+    ]
+  },
+  "busyEscape": {
+    "present": true,
+    "focus": "Skip to workspaceRealCRM /WorkspaceDashboardLeadsPropertiesM",
+    "inside": false,
+    "busy": "true",
+    "workspaceInert": true,
+    "headerInert": true,
+    "client": 341,
+    "scroll": 341,
+    "child": 341,
+    "pageClient": 390,
+    "pageScroll": 390,
+    "disabled": [
+      "Close lead dialog",
+      "Cancel",
+      "Adding Lead..."
+    ]
+  },
+  "busyOutside": {
+    "present": true,
+    "focus": "",
+    "inside": true,
+    "busy": "true",
+    "workspaceInert": true,
+    "headerInert": true,
+    "client": 341,
+    "scroll": 341,
+    "child": 341,
+    "pageClient": 390,
+    "pageScroll": 390,
+    "disabled": [
+      "Close lead dialog",
+      "Cancel",
+      "Adding Lead..."
+    ]
+  },
+  "busyFocusAttempt": {
+    "present": true,
+    "focus": "",
+    "inside": true,
+    "busy": "true",
+    "workspaceInert": true,
+    "headerInert": true,
+    "client": 341,
+    "scroll": 341,
+    "child": 341,
+    "pageClient": 390,
+    "pageScroll": 390,
+    "disabled": [
+      "Close lead dialog",
+      "Cancel",
+      "Adding Lead..."
+    ]
+  },
+  "rejectedFixture": {
+    "present": true,
+    "focus": "",
+    "inside": true,
+    "busy": null,
+    "workspaceInert": true,
+    "headerInert": true,
+    "client": 341,
+    "scroll": 341,
+    "child": 341,
+    "pageClient": 390,
+    "pageScroll": 390,
+    "disabled": []
+  },
+  "escapeReturn": {
+    "present": false,
+    "focus": "Refer Lead",
+    "workspaceInert": false,
+    "headerInert": false,
+    "pageClient": 390,
+    "pageScroll": 390,
+    "disabled": []
+  },
+  "mutationRequests": [
+    {
+      "path": "/api/leads",
+      "method": "POST",
+      "body": "{\"name\":\"Synthetic Busy Check\",\"email\":\"busy-check@example.invalid\",\"phone\":null,\"source\":\"referral\",\"sourceId\":\"Synthetic Referrer\",\"propertyId\":null}"
+    }
+  ],
+  "mutationBoundary": "One synthetic POST delayed then rejected by existing fixture422; no persistence/delivery/provider contact."
+}

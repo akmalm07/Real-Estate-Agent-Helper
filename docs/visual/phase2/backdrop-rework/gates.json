@@ -1,0 +1,46 @@
+{
+  "at": "2026-10-30T02:53:06.399598+00:00",
+  "base_commit": "0ec8e0a0994a23d627a1bb94081f55a8110f1626",
+  "source_manifest": "docs/visual/phase2/backdrop-rework/source.sha256",
+  "source_paths": 63,
+  "source_manifest_sha256": "d165d83ff451c4f4b79a16bbded5b575fdda74ddfe38b910e83e5125e38ec2f5",
+  "gates": [
+    {
+      "command": "npm exec --offline --package=node@22.22.0 -- npm test",
+      "exit_code": 0,
+      "log": ".visual-audit/phase2-backdrop-final-test.log"
+    },
+    {
+      "command": "npm exec --offline --package=node@22.22.0 -- npm run lint",
+      "exit_code": 0,
+      "log": ".visual-audit/phase2-backdrop-final-lint.log"
+    },
+    {
+      "command": "npm exec --offline --package=node@22.22.0 -- npx tsc -b --force",
+      "exit_code": 0,
+      "log": ".visual-audit/phase2-backdrop-final-types.log"
+    },
+    {
+      "command": "npm exec --offline --package=node@22.22.0 -- npm run build",
+      "exit_code": 0,
+      "log": ".visual-audit/phase2-backdrop-final-build.log"
+    }
+  ],
+  "opencode": {
+    "session_id": "ses_e754cf457ffeG4dxdF4KW1hycL",
+    "requested_model": "openai/gpt-6-luna",
+    "observed_model": "unverified; export command approval-blocked, not bypassed",
+    "variant": "default",
+    "speed": "standard",
+    "runs": 1,
+    "step_finish_usage": {
+      "input": 66902,
+      "output": 2395,
+      "reasoning": 2275,
+      "cache_read": 242688,
+      "cache_write": 0
+    },
+    "actual_cost_quota": "unavailable; client zero is not an invoice",
+    "terminal_exit": "Unavailable after gateway-owner crash; saved final step reason=tool-calls"
+  }
+}

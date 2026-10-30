@@ -31,6 +31,7 @@ export function AppLayout() {
       {sidebarOpen && (
         <div
           className="fixed inset-0 z-20 bg-foreground/30 lg:hidden"
+          data-focus-scope-allow-click=""
           aria-hidden="true"
           onClick={() => setSidebarOpen(false)}
         />

@@ -139,7 +139,8 @@ function focusDOM() {
     hasAttribute(key) { return this.attrs.has(key) }
     setAttribute(key) { this.attrs.add(key) }
     removeAttribute(key) { this.attrs.delete(key) }
-    closest() { return this.hasAttribute('inert') ? this : this.parentElement?.closest() ?? null }
+    closest(selector) { return this.hasAttribute('inert') ? this : this.parentElement?.closest(selector) ?? null }
+    matches(selector) { return selector === '[data-focus-scope-allow-click]' && this.allowFocusScopeClick === true }
     contains(node) { return node === this || this.children.some(child => child.contains(node)) }
     focus() { document.activeElement = this }
     getClientRects() { return [1] }
@@ -207,6 +208,35 @@ test('actual drawer shares focus/inert trapping and returns focus when closed', 
   await act(() => tree.update(render(false)))
   assert.equal(dom.background.hasAttribute('inert'), false)
   assert.equal(document.activeElement, dom.opener)
+  assert.equal(dom.listeners.size, 0)
+})
+
+test('actual shell backdrop stays clickable outside drawer scope while header and main stay inert', async () => {
+  const dom = focusDOM()
+  const shell = new dom.scope.constructor(dom.scope.parentElement)
+  const backdrop = new dom.scope.constructor(shell)
+  backdrop.allowFocusScopeClick = true
+  const sidebar = new dom.scope.constructor(shell)
+  const content = new dom.scope.constructor(shell)
+  const header = new dom.scope.constructor(content)
+  const main = new dom.scope.constructor(content)
+  const opener = new dom.scope.constructor(header)
+  dom.scope = sidebar
+  dom.opener = opener
+  document.activeElement = opener
+  const tree = await mount(routed(authed(h(AppLayout))), { createNodeMock: node => node.type === 'aside' ? sidebar : node.props['data-focus-scope-allow-click'] !== undefined ? backdrop : null })
+  const trigger = () => button(tree, 'Open navigation')
+  await click(tree, 'Open navigation')
+  assert.equal(trigger().props['aria-expanded'], true)
+  assert.equal(backdrop.hasAttribute('inert'), false)
+  assert.equal(header.closest('[inert]'), content)
+  assert.equal(main.closest('[inert]'), content)
+  const overlay = tree.root.findAllByType('div').find(node => node.props.className === 'fixed inset-0 z-20 bg-foreground/30 lg:hidden')
+  assert.ok(overlay?.props.onClick)
+  assert.equal(overlay.props['data-focus-scope-allow-click'], '')
+  await act(() => overlay.props.onClick())
+  assert.equal(trigger().props['aria-expanded'], false)
+  assert.equal(document.activeElement, opener)
   assert.equal(dom.listeners.size, 0)
 })
 

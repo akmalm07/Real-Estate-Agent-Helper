@@ -332,3 +332,82 @@ Independent visual review is still required. Final DB-backed functional/security
 real authentication and provider acceptance remain unverified and follow all
 visual phases. No application-wide accessibility or final product acceptance is
 claimed here.
+
+## Reviewer-requested backdrop correction — October 30, 2026
+
+`0ec8e0a0994a23d627a1bb94081f55a8110f1626` was **not approved**. Reviewer
+comment42 demonstrated that the focus helper also made the clickable mobile
+backdrop inert. The manager authorized this correction only, not another redesign.
+The interrupted attempt's single Luna run and three-file repair were adopted;
+no replacement editor/source repair was run in recovery. AppLayout marks only
+its non-focusable, aria-hidden backdrop `data-focus-scope-allow-click`; the helper
+skips that sibling while retaining background inertness and keyboard containment.
+Sidebar, modal production code, routes, provider boundaries and authority files
+are unchanged. Explicit task commit permission overrides generic STYLE.md policy.
+
+### Regression and exact-source gates
+
+Saved `.visual-audit/phase2-backdrop-red.log`:49 executed,48 pass,1 fail,exit1;
+the new actual-shell regression failed on backdrop inert `true !== false` before
+the production fix. The initial name filter followed the glob, so the whole suite
+ran. Saved GREEN: focused1/1 and full49/49,exit0. The test asserts backdrop
+exemption, retained main/header ancestor inertness, close/return-focus and cleanup.
+Existing modal busy/Escape/focus and disabled-control tests remain passing.
+
+Fresh supervisor commands from `frontend`, all exit0:
+- `npm exec --offline --package=node@22.22.0 -- npm test`:49/49;0 failed/skipped.
+- `npm exec --offline --package=node@22.22.0 -- npm run lint`.
+- `npm exec --offline --package=node@22.22.0 -- npx tsc -b --force`.
+- `npm exec --offline --package=node@22.22.0 -- npm run build`:1672 modules,6.88s.
+
+Logs: `.visual-audit/phase2-backdrop-final-{test,lint,types,build}.log`.
+Separate63-path `docs/visual/phase2/backdrop-rework/source.sha256`, SHA256
+`d165d83ff451c4f4b79a16bbded5b575fdda74ddfe38b910e83e5125e38ec2f5`,
+verifies across gates/browser checks. Original source manifest and18 PNGs stay
+**pre-fix** evidence for0ec8e0a; no historical screenshot was overwritten.
+The exact new commit is on the native handoff to avoid self-reference.
+
+### Affected native checks — SIMULATED-visual / NOT E2E
+
+Existing mutation-rejecting fixture injected before local5175 navigation;
+HTTPS/providers/local8080 additionally blocked. At390×1000 on `/properties`:
+- Two native CDP open→click(330,500) cycles outside240px drawer dismiss it.
+  Before each: backdrop inert=false, main/header inert=true. After each:
+  expanded=false, background released, focus=Open navigation; page390/scroll390.
+- Native Shift-Tab wraps Close→Logout; Tab wraps Logout→Close. Background focus
+  attempt cannot escape. Native Escape and Close each restore the opener.
+- `/leads` Refer Lead settled native Tab wraps Close↔Add Lead. Outside click
+  does not dismiss; inert workspace/header reject background focus. Visible native
+  submit exposes4 associated field errors; modal client341/scroll341/child341.
+- One browser-only delayed synthetic POST observes aria-busy=true, disabled
+  Close/Cancel/submit, blocked Escape/outside dismissal and inert workspace/header.
+  Disabling focused submit transiently blurs focus to body (recorded, not hidden);
+  outside click recaptures dialog focus and further header focus attempt stays
+  inside. Existing fixture releases422; Escape returns Refer Lead. No persistence,
+  delivery or provider contact; this is not live functional acceptance.
+
+Records: `backdrop-rework/{native-dismissal,native-modal,gates,evidence}.json`.
+Three actual PNGs individually inspected: `navigation-open-390.png` (Properties
+active,identity,dim backdrop), `navigation-dismissed-390.png` (opener focus ring,
+no drawer/backdrop), `dialog-validation-390.png` (readable associated errors in
+vertically scrollable modal). All have simulation banners. Screenshot hashes are
+separate from source hashes. No new imagery or whole-route matrix recapture.
+
+Probe limitations: generic click helper initially did not open the drawer;
+direct CDP input succeeded. One selector quoting error was corrected. Early
+modal probes incorrectly assumed ancestor main should be inert and used offscreen
+submit coordinates; actual workspace/header inertness and visible native pointer
+submission were then rechecked. Failed probes are not reported as passes.
+
+Preserved OpenCode session `ses_e754cf457ffeG4dxdF4KW1hycL`, requested
+`openai/gpt-6-luna`, default effort/standard speed. Saved final text reports completion;
+last step-finish reason is tool-calls, not a proven terminal exit. Original exit unavailable after gateway-owner crash. Manager confirmed
+no surviving writer; supervisor verified files and all gates. Step-finish totals:
+input66902, cache-read242688, output2395, reasoning2275, cache-write0 (do not add
+reasoning twice). Observed model/cost/quota unverified: export command was
+approval-blocked before execution and not bypassed. No new coding/provider run.
+
+Explicit scoped staging/credential scan excludes manager-owned REQUIREMENTS.md
+and decisions.json, instruction files, audit/raw logs and historical captures.
+Independent same-card `mvp-reviewer` re-review is required; phase3 remains gated.
+No PR/push/merge/deployment or DB/auth/provider/final-app acceptance.
