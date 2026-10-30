@@ -1,0 +1,258 @@
+[
+  {
+    "check": "login-first-tab-390",
+    "data": {
+      "tag": "A",
+      "text": "RealCRM",
+      "outline": "rgb(38, 79, 62) solid 2px"
+    }
+  },
+  {
+    "check": "signup-validation-390",
+    "data": {
+      "errors": [
+        {
+          "id": "auth-name",
+          "described": "auth-error"
+        },
+        {
+          "id": "auth-email",
+          "described": "auth-error"
+        },
+        {
+          "id": "auth-password",
+          "described": "auth-error"
+        },
+        {
+          "id": "auth-confirm",
+          "described": "auth-error"
+        }
+      ],
+      "requests": [
+        {
+          "path": "/api/dashboard",
+          "method": "GET",
+          "body": null
+        },
+        {
+          "path": "/api/properties",
+          "method": "GET",
+          "body": null
+        },
+        {
+          "path": "/api/messages",
+          "method": "GET",
+          "body": null
+        },
+        {
+          "path": "/api/auth/me",
+          "method": "GET",
+          "body": null
+        }
+      ]
+    }
+  },
+  {
+    "check": "reset-busy-390",
+    "data": {
+      "busy": "true",
+      "disabled": true
+    }
+  },
+  {
+    "check": "reset-rejection-390",
+    "data": {
+      "error": "SIMULATED rejection \u2014 no persistence, provider connection or delivery.",
+      "invalid": 2,
+      "requests": [
+        {
+          "path": "/api/dashboard",
+          "method": "GET",
+          "body": null
+        },
+        {
+          "path": "/api/properties",
+          "method": "GET",
+          "body": null
+        },
+        {
+          "path": "/api/messages",
+          "method": "GET",
+          "body": null
+        },
+        {
+          "path": "/api/auth/me",
+          "method": "GET",
+          "body": null
+        },
+        {
+          "path": "/api/auth/change-password/confirm",
+          "method": "POST",
+          "body": "{\"token\":\"synthetic-visual\",\"newPassword\":\"synthetic-eight\"}"
+        }
+      ]
+    }
+  },
+  {
+    "check": "callback-missing-token-390",
+    "data": "/login"
+  },
+  {
+    "check": "callback-rejected-390",
+    "data": [
+      {
+        "path": "/auth/google/exchange",
+        "method": "POST",
+        "body": "{\"tempToken\":\"synthetic-visual\"}"
+      },
+      {
+        "path": "/api/dashboard",
+        "method": "GET",
+        "body": null
+      },
+      {
+        "path": "/api/properties",
+        "method": "GET",
+        "body": null
+      },
+      {
+        "path": "/api/messages",
+        "method": "GET",
+        "body": null
+      },
+      {
+        "path": "/api/auth/me",
+        "method": "GET",
+        "body": null
+      }
+    ]
+  },
+  {
+    "check": "login-first-tab-1440",
+    "data": {
+      "tag": "A",
+      "text": "RealCRM",
+      "outline": "rgb(38, 79, 62) solid 2px"
+    }
+  },
+  {
+    "check": "signup-validation-1440",
+    "data": {
+      "errors": [
+        {
+          "id": "auth-name",
+          "described": "auth-error"
+        },
+        {
+          "id": "auth-email",
+          "described": "auth-error"
+        },
+        {
+          "id": "auth-password",
+          "described": "auth-error"
+        },
+        {
+          "id": "auth-confirm",
+          "described": "auth-error"
+        }
+      ],
+      "requests": [
+        {
+          "path": "/api/dashboard",
+          "method": "GET",
+          "body": null
+        },
+        {
+          "path": "/api/properties",
+          "method": "GET",
+          "body": null
+        },
+        {
+          "path": "/api/messages",
+          "method": "GET",
+          "body": null
+        },
+        {
+          "path": "/api/auth/me",
+          "method": "GET",
+          "body": null
+        }
+      ]
+    }
+  },
+  {
+    "check": "reset-busy-1440",
+    "data": {
+      "busy": "true",
+      "disabled": true
+    }
+  },
+  {
+    "check": "reset-rejection-1440",
+    "data": {
+      "error": "SIMULATED rejection \u2014 no persistence, provider connection or delivery.",
+      "invalid": 2,
+      "requests": [
+        {
+          "path": "/api/dashboard",
+          "method": "GET",
+          "body": null
+        },
+        {
+          "path": "/api/properties",
+          "method": "GET",
+          "body": null
+        },
+        {
+          "path": "/api/messages",
+          "method": "GET",
+          "body": null
+        },
+        {
+          "path": "/api/auth/me",
+          "method": "GET",
+          "body": null
+        },
+        {
+          "path": "/api/auth/change-password/confirm",
+          "method": "POST",
+          "body": "{\"token\":\"synthetic-visual\",\"newPassword\":\"synthetic-eight\"}"
+        }
+      ]
+    }
+  },
+  {
+    "check": "callback-missing-token-1440",
+    "data": "/login"
+  },
+  {
+    "check": "callback-rejected-1440",
+    "data": [
+      {
+        "path": "/auth/google/exchange",
+        "method": "POST",
+        "body": "{\"tempToken\":\"synthetic-visual\"}"
+      },
+      {
+        "path": "/api/dashboard",
+        "method": "GET",
+        "body": null
+      },
+      {
+        "path": "/api/properties",
+        "method": "GET",
+        "body": null
+      },
+      {
+        "path": "/api/messages",
+        "method": "GET",
+        "body": null
+      },
+      {
+        "path": "/api/auth/me",
+        "method": "GET",
+        "body": null
+      }
+    ]
+  }
+]

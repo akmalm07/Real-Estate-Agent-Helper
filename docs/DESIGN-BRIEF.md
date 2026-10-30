@@ -139,3 +139,54 @@ The caution rail is a meaningful verification warning, and the navigation rail
 is active-state information, not decorative organisation. This is a design
 self-audit, not independent accessibility or final application certification.
 Actual browser evidence and limitations are appended to VISUAL-VERIFICATION.md.
+
+# Phase 3 — Account, correspondence and reference
+
+Bounded task `t_ce657371`: Configure covers login, Google callback, password,
+six-step onboarding and settings; Operate covers the existing inbox; Learn covers
+the two legal pages. Home receives utility-label typography only: layout, photo,
+copy and claims are preserved. No new assets, dependencies, provider calls or
+backend/auth architecture. Browser captures and final verification belong to the
+supervisor, including VISUAL-VERIFICATION.md; renderer tests are not browser evidence.
+
+## D009 implementation
+
+Keep the approved warm paper / forest / editorial identity and RealCRM wordmark.
+The offline sans stack is Segoe UI / Helvetica Neue / Arial; existing editorial
+serif remains on Home and legal titles. Shared `--font-mono` (system monospace /
+SFMono-Regular / Consolas / Liberation Mono) carries small utility labels and
+tabular metadata, including the existing CRM numeric class. No downloaded fonts.
+Forms use a ruled, left-aligned sheet, not decorative imagery or icon toppers.
+Semantic palette tokens, clear labels, described errors, focus-visible treatment,
+44px controls, busy states and reduced-motion support extend the existing UI.
+Inbox stacks list/thread on mobile and uses shrinkable desktop columns; long
+names and bodies wrap, selection is pressed and unread meaning is explicit text.
+Legal text, including existing placeholders and claims, is unchanged in a quiet
+66ch measure with real home links.
+
+## Truthful boundaries and later functional repairs
+
+- Only fetched boolean `gmailConnected: true` produces a connected onboarding
+  state; source is not evidence. Removed the never-shared guarantee and promises
+  that all onboarding answers or Gmail can be changed in Settings.
+- Inbox Send stays visible but disabled, explains that sending is not connected,
+  and does not clear a draft or claim delivery. Latest-inbound “Unread” is not
+  persisted read tracking. Actual sending/read tracking remain later work.
+- Settings Connect/Disconnect stay disabled: connection status unavailable,
+  configuration pending. No local toggle pretends to establish a connection.
+- Save/password-request busy and error disclosure is narrowly guarded; only an
+  existing successful response may show success. Notification keys, including
+  `weeklySummeryNotify` versus `weeklySummaryNotify`, remain unchanged for later
+  persistence/cache/key repair. No manufactured persistence guarantee.
+- Existing manual-signup navigation to absent `/confirm-email` remains a known
+  contradiction for a later auth repair; no ConfirmEmailPage or email flow added.
+- Legal placeholders/content and invalid-reset copy are existing product debt,
+  not newly researched legal advice or a new reset-request workflow.
+
+## Short anti-slop audit (implementation only)
+
+No indigo/gradient account shell, floating icon topper, decorative form photo,
+equal feature tiles, invented telemetry or microscopic status labels. Useful
+rules and restrained monospace add precision without a neon/dark redesign.
+Real controls, existing data and honest unavailable states lead the hierarchy.
+Responsive/keyboard/contrast acceptance remains subject to supervisor browser review.

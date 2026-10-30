@@ -411,3 +411,179 @@ Explicit scoped staging/credential scan excludes manager-owned REQUIREMENTS.md
 and decisions.json, instruction files, audit/raw logs and historical captures.
 Independent same-card `mvp-reviewer` re-review is required; phase3 remains gated.
 No PR/push/merge/deployment or DB/auth/provider/final-app acceptance.
+
+# Visual phase 3 — October 30, 2026
+
+## Exact candidate, pending independent visual review
+
+Task `t_ce657371`, branch `fix/functional-repair`, base `66ffdb238df61f61ceba039a3787a52e8af962b4`.
+Read the locked requirements, decisions, project/frontend instructions, design brief,
+feature matrix and recovery checkpoints. `factoryctl status real-estate-agent-helper`
+returned exit0, Scope valid True. Manager D009 authority was inspected in the
+separate two-file docs commit `66ffdb2`; no authority/instruction edits are included
+in this visual candidate. Explicit task permission authorizes this local feature
+commit despite the generic STYLE.md prohibition. No publication is authorized here.
+
+Preserved the original focused Sol implementation and the one evidenced Luna
+repair for Settings initials overflow; no new writer or repair run in this recovery.
+Actual source/test diffs inspected. The repair uses existing `getInitials`, bounds
+long names to two initials, and covers whitespace-only names in an actual-component
+regression. Build, test, auth/provider architecture and dependencies are unchanged.
+
+### Final-source gates (sequential, after the initials correction)
+
+From `frontend`, all exit0:
+
+| Command | Observed result |
+| --- | --- |
+| `npm exec --offline --package=node@22.22.0 -- npm test` | 61 tests,61 pass;0 fail,skip,cancel |
+| `npm exec --offline --package=node@22.22.0 -- npm run lint` | existing unchanged lint gate passes |
+| `npm exec --offline --package=node@22.22.0 -- npx tsc -b --force` | forced typecheck passes |
+| `npm exec --offline --package=node@22.22.0 -- npm run build` | tsc + Vite production build passes |
+| `git diff --check` | passes |
+| `sha256sum --check --quiet docs/visual/phase3/source.sha256` |52 source/test/theme paths match |
+| `sha256sum --check --quiet docs/visual/phase3/images.sha256` |82 actual PNGs match |
+
+Logs: `.visual-audit/phase3-candidate-{test,lint,types,build}.log`. Renderer
+ deprecation, MockTimers experimental warning and Vite plugin-timing advice are
+not suppressed or represented as failures. Twelve new actual-component account
+regressions cover auth arguments/validation/busy, callback exchange, reset
+validation/request/errors, all six onboarding steps/payload/guards, fetched
+connection truth, inbox grouping/search/selection/disabled-send/draft, settings
+busy/rejection/contracts/initials/password errors, and legal landmarks/content.
+No tests were weakened. These are synthetic component checks, not DB E2E.
+
+## Browser method and evidence inventory
+
+Built preview on `http://127.0.0.1:4175`, both390×1000 and1440×1000.
+Command: `npm exec --offline --package=node@22.22.0 -- npm run preview -- --host 127.0.0.1 --port 4175 --strictPort`.
+`docs/visual/phase3/preview-fixture.js` is a browser-only pre-navigation CDP script,
+not imported by production, not a route or production authentication bypass.
+It labels every capture **SIMULATED-visual / NOT E2E**, clears synthetic cache,
+returns `.invalid` identities/messages at fetch boundaries, and rejects ALL
+mutations422 (optionally delayed). HTTPS/provider and localhost/127.0.0.1:8080
+network were additionally blocked. No live login, mail, phone, provider connection,
+DB writes or successful persistence was attempted. GET connected is a fixture,
+not evidence of a real Gmail account. Callback-loading holds its synthetic exchange.
+
+Every PNG was visually inspected through12 contact sheets plus a replacement
+sheet. `screenshot-manifest.json` lists exact paths, hashes, dimensions, capture
+metrics and classification; `images.sha256` binds all82 PNGs:16 before +66 final.
+Source manifest binds the full frontend TS/TSX tree, CSS/theme and added regression.
+The before snapshot was preserved prior to edits. Six initial before PNGs for
+messages/onboard/settings contained Vite error overlays; one mobile home photo
+was unpainted. These were explicitly REJECTED, not passed. Originals remain only
+in untracked `.visual-audit/phase3-rejected-before/`. Only those seven were replaced
+from the preserved isolated baseline's successful production build (log
+`.visual-audit/phase3-before-build.log`), then pixels inspected. Its source is
+compared to base commit in the final audit, not inferred from a screenshot.
+The baseline mobile inbox has a squeezed thread; the final stacks list/thread.
+
+All following file patterns are under `docs/visual/phase3/`; `{390,1440}` means
+both actual viewport captures, not a responsive rendering inference:
+
+| Surface | Exact evidence stems (append `-{390,1440}.png`) |
+| --- | --- |
+| Home harmony | `home-before`, `home-final`, `home-lower`, `home-fallback` |
+| Login/signup | `login-before`, `login-final`, `signup-final`, `signup-validation` |
+| Password | `reset-before`, `reset-invalid`, `reset-form`, `reset-validation`, `reset-busy`, `reset-error` |
+| Callback | `callback-loading` (missing/rejected redirects in interaction JSON) |
+| Onboarding | `onboard-before`, `onboard-step1` through `onboard-step6`, `onboard-connected`, `onboard-saving`, `onboard-error` |
+| Inbox | `messages-before`, `messages-populated`, `messages-thread`, `messages-empty`, `messages-error`, `messages-loading` |
+| Settings | `settings-before`, `settings-final`, `settings-busy`, `settings-lower` |
+| Legal | `privacy-before`, `privacy-final`, `privacy-lower`, `terms-before`, `terms-final`, `terms-lower` |
+
+Home photo/claims/layout and existing CC0 source/caption remain unchanged; final
+photo visibly painted and real network-blocked fallback retains frame/caption.
+No new asset/font/license claim. Account Configure sheets are left aligned, legal
+Learn text has66ch measure, inbox Operate preserves readable density; sans UI and
+mono metadata stay subordinate to the existing warm editorial identity. No neon,
+gradients, generic icon tiles, fake metrics or second design system. The focused
+h2 outline seen in onboarding captures is actual keyboard focus, not a decorative
+border. Structural self-audit: no new compositional slop tell; not an independent
+accessibility or legal certification.
+
+## Observed interactions and accessibility
+
+Raw records: `account-interactions.json`, `workspace-interactions.json`,
+`accessibility-metrics.json`. Native CDP Tab/mouse/text used where specified;
+JS form/button actions supplement state checks and are not called native clicks.
+
+- Account first native Tab reaches RealCRM with2px forest outline at both widths.
+  Native rawKeyDown+char Enter activates signup; an earlier keyDown-only helper
+  probe did not activate and is not counted. Signup mismatch has four invalid
+  fields described by visible `auth-error`, no POST. Reset short validation,
+  two associated invalid fields, disabled busy and422 errors captured. Callback
+  missing-token and rejected exchange both return `/login`; loading is held fixture.
+- All six onboarding steps at both widths captured, selected buttons expose
+  `aria-pressed`, progress has1–6 numeric/text semantics. Step change focuses h2;
+  native next Tab reaches Connect Gmail, which was NOT activated. Step2 inputs
+  have visible associated labels and Continue remains disabled until valid.
+  Other-source input, disabled Coming soon phone, Back, saving/rejection states
+  captured; exact complete bundle/guard behavior independently tested in renderer.
+- Native settings Tab from first select reaches second select with2px forest
+  outline. No unlabelled fields, unresolved description IDs or below44px measured
+  form controls in inbox/settings. Connect and Disconnect disabled with truthful
+  unavailable/pending explanation. Delayed fixture save disables all selects and
+  marks busy;422 shows error and never Saved. Password request disabled while
+  pending, then visible failure with no Email successfully sent. Both exact
+  synthetic POST payloads retained in workspace-interactions; no live delivery.
+- Corrected avatar measures48px client/scroll at both widths. Full long name and
+  `.invalid` email wrap. Native inbox selection updates pressed state/thread;
+  native draft typing + Ctrl-Enter retains draft, Send is disabled, zero POSTs.
+  Long unspaced body and name fit thread:346/346px mobile and784/784 desktop;
+  individual message client/scroll widths also equal. Search finds no-match state.
+  Unread explicitly means latest inbound, NOT persisted read status.
+- No page horizontal overflow in final capture metrics. Shell `main` is the
+  actual scroll container: settings390 has944px viewport/1703px error content,
+  scrollTop759; desktop944/1258,top314. Inbox mobile944/1286,top342; desktop fits
+ 944/944. Lower screenshots show reply/footer/account controls, not a false
+  document-scroll-only check. Legal/Home page scrolling reaches lower text and
+  real Home/legal links; sampled links and form controls meet44px height.
+- Emulated reduced motion yields15 loading skeleton animations `none` per width;
+  existing global spinner/pulse rule preserved. Network-blocked local image yields
+  zero img nodes, useful unavailable text, retained editorial attribution and no
+  horizontal overflow at both widths. Media/cache/network settings restored after
+  checks; no animation/failure event was fabricated for these observations.
+- Paper/forest/error tokens unchanged from measured phase1 ratios. New type stacks
+  are offline-safe sans/mono; no blanket site-wide contrast/screenreader pass is
+  claimed. Actual visible text was inspected; reviewer should repeat native tests.
+
+## Active-route checklist against FEATURE-MATRIX.md
+
+| Matrix IDs | Visual status only |
+| --- | --- |
+| P01 Home | fresh390/1440 harmony/photo/fallback/scroll; aliases/guards unchanged |
+| P02 Login | both modes, labels, error, busy component regression; no auth success |
+| P03 Callback | busy screenshots + missing/rejected local redirect; success provider excluded |
+| P04 Reset | invalid/form/validation/busy/error, real contracts; no real token/email |
+| P05 ConfirmEmail | **N/A-disabled**, unchanged/unmounted; NOT a visual pass |
+| P06 Onboarding | all six steps, connected fixture, busy/error, labels/focus; no persistence |
+| P07–P10 Dashboard/Leads/Detail/Properties | prior independently reviewed phase2, not recertified E2E by this card; global type polish covered by full61 tests/build |
+| P11 Messages | list/thread/empty/error/loading/no-match, draft/disabled-send and scroll |
+| P12 Settings | forms/disabled integration/busy/error/long identity; no persistence acceptance |
+| P13–P14 Legal | both sizes and lower text/navigation, existing wording unchanged; NOT legally approved |
+
+All13 active page components accounted for across visual phases, not13 functional
+passes. No task-management page or disabled confirmation flow invented. The36
+mounted backend routes,23 legacy and4 Microsoft-unmounted definitions retain
+baseline classifications; this frontend visual card does not retest them.
+
+## Required later functional work and handoff boundary
+
+Manual signup still navigates to absent `/confirm-email`; ConfirmEmailPage remains
+fully disabled. Inbox backend sending/read persistence is not wired; Send now
+honestly disabled rather than clearing an unsent draft. Settings integration
+connection operations unavailable; preference-key mismatch
+`weeklySummeryNotify`/`weeklySummaryNotify`, cache/readback/persistence remain later
+repair. Save/password errors no longer manufacture success. Legal placeholders
+and invalid-reset copy referencing a login reset-request option remain existing
+content debt. No legal/compliance guarantee added. Real Google architecture intact.
+
+Explicit staged path/secret audit and manifests in `.visual-audit/phase3-*` exclude
+AGENTS/instruction files, authority docs, all runtime logs/audits, historical
+phase1/phase2 untracked PNGs and rejected captures. Candidate exact SHA is on the
+native same-card handoff to `mvp-reviewer`; independent visual approval is required
+before backend child `t_9d4a7723` is released. No push/PR/merge/deploy. Genuine
+DB-backed application acceptance, auth/core/settings/inbox repairs, no-delivery
+Google-shaped email simulation and final PR remain manager-owned later milestones.

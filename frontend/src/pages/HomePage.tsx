@@ -20,7 +20,7 @@ export default function HomePage() {
       <main id="main-content" tabIndex={-1} className="journal-container">
         <section className="journal-hero" aria-labelledby="home-title">
           <div className="journal-hero-copy">
-            <p className="journal-eyebrow">Real estate, in context</p>
+            <p className="journal-eyebrow utility-label">Real estate, in context</p>
             <h1 id="home-title">Keep the people.<br />Keep the context.</h1>
             <p className="journal-deck">
               Behind every property is a conversation. Keep lead details, notes and
@@ -38,7 +38,7 @@ export default function HomePage() {
           </div>
 
           <figure className="journal-figure">
-            <p className="journal-folio">In perspective <span>Architecture</span></p>
+            <p className="journal-folio font-mono">In perspective <span>Architecture</span></p>
             <div className="journal-photo-frame">
               {imageUnavailable ? (
                 <div className="journal-photo-fallback">
@@ -68,7 +68,7 @@ export default function HomePage() {
 
         <section id="workspace" className="journal-workspace" aria-labelledby="workspace-title">
           <div className="journal-introduction">
-            <p className="journal-eyebrow">The workspace</p>
+            <p className="journal-eyebrow utility-label">The workspace</p>
             <h2 id="workspace-title">A place for the details that matter.</h2>
             <p>
               Start with the dashboard for an overview, then move into the people,

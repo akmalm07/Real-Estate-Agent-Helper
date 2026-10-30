@@ -18,7 +18,8 @@
     --color-error-wash: 253 239 234;
     --color-caution: 120 77 20;
     --color-caution-wash: 250 241 219;
-    --font-sans: 'Trebuchet MS', Arial, sans-serif;
+    --font-sans: 'Segoe UI', 'Helvetica Neue', Arial, sans-serif;
+    --font-mono: ui-monospace, 'SFMono-Regular', Consolas, 'Liberation Mono', monospace;
     --font-display: Georgia, 'Palatino Linotype', Palatino, serif;
     --radius-card: 8px;
     --radius-control: 6px;
@@ -411,7 +412,7 @@
   .crm-workspace,
   .crm-modal { overflow-wrap: anywhere; }
   .crm-numeric {
-    font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+    font-family: var(--font-mono);
     font-variant-numeric: tabular-nums;
     letter-spacing: -0.025em;
   }
@@ -545,6 +546,94 @@
   @media (max-width: 1023px) {
     .crm-sidebar[inert] { visibility: hidden; }
   }
+}
+
+/* Phase 3: purposeful account forms, inbox and quiet legal reading. */
+@layer components {
+  .utility-label {
+    font-family: var(--font-mono);
+    font-size: 0.75rem;
+    line-height: 1.5;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: rgb(var(--color-muted));
+  }
+  .account-page {
+    min-height: 100svh;
+    padding: clamp(1.25rem, 5vw, 4rem) 1.25rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgb(var(--color-paper));
+    color: rgb(var(--color-ink));
+    overflow-wrap: anywhere;
+  }
+  .account-panel { width: 100%; max-width: 28rem; min-width: 0; }
+  .account-wordmark {
+    display: inline-flex;
+    align-items: center;
+    min-height: 44px;
+    margin-bottom: 1rem;
+    font-size: 1.625rem;
+    font-weight: 700;
+    letter-spacing: -0.055em;
+    color: rgb(var(--color-ink));
+  }
+  .account-sheet {
+    padding: clamp(1.25rem, 4vw, 2rem);
+    border: 1px solid rgb(var(--color-rule));
+    border-top: 3px solid rgb(var(--color-forest));
+    border-radius: var(--radius-card);
+    background: rgb(var(--color-surface));
+  }
+  .account-sheet h1, .account-title {
+    font: 600 clamp(1.75rem, 4vw, 2rem) / 1.2 var(--font-sans);
+    letter-spacing: -0.04em;
+    color: rgb(var(--color-ink));
+  }
+  .account-sheet h1:not(.sr-only) { margin-top: 0.75rem; }
+  .account-description { margin-block: 0.75rem 1.75rem; font-size: 0.9375rem; line-height: 1.6; color: rgb(var(--color-muted)); }
+  .account-modes { display: flex; gap: 0.25rem; padding: 0.25rem; margin-bottom: 1.5rem; border: 1px solid rgb(var(--color-rule)); background: rgb(var(--color-paper)); border-radius: var(--radius-control); }
+  .account-modes button { flex: 1; padding: 0.5rem; font-size: 0.875rem; border-bottom: 2px solid transparent; }
+  .account-modes button[aria-pressed="true"] { background: rgb(var(--color-sage)); border-color: rgb(var(--color-forest)); color: rgb(var(--color-forest)); font-weight: 700; }
+  .account-divider { margin-block: 1.25rem; color: rgb(var(--color-muted)); font-size: 0.8125rem; }
+  .account-error { padding: 0.75rem 1rem; border: 1px solid rgb(var(--color-error)); border-radius: var(--radius-control); background: rgb(var(--color-error-wash)); color: rgb(var(--color-error)); font-size: 0.875rem; line-height: 1.5; }
+  .account-legal { border-top: 1px solid rgb(var(--color-rule)); padding-top: 1rem; margin-top: 1.5rem; font-size: 0.8125rem; line-height: 1.6; color: rgb(var(--color-muted)); }
+  .account-legal a { text-decoration: underline; text-underline-offset: 3px; color: rgb(var(--color-forest)); }
+  .account-page :is(button, input, select, textarea, a),
+  .account-workspace :is(button, input, select, textarea),
+  .legal-page a { min-height: 44px; }
+  .account-page a, .legal-page a { display: inline-flex; align-items: center; }
+  .account-page :is(button, input, a, [tabindex]):focus-visible,
+  .account-workspace :is(button, input, select, textarea):focus-visible,
+  .legal-page a:focus-visible { outline: 2px solid rgb(var(--color-forest)); outline-offset: 3px; }
+  .account-page button:disabled { cursor: not-allowed; }
+  .account-workspace { min-width: 0; overflow-wrap: anywhere; }
+  .settings-row { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 1rem; }
+  .settings-row > div:first-child { flex: 1 1 14rem; min-width: 0; }
+  .settings-select { width: auto; min-width: 7rem; }
+  .inbox-layout { display: grid; grid-template-columns: minmax(0, 1fr); gap: 1rem; }
+  .inbox-list { min-width: 0; max-height: 28rem; }
+  .inbox-thread { min-height: 28rem; }
+  .inbox-message { max-width: 92%; min-width: 0; overflow-wrap: anywhere; }
+  .legal-page { min-height: 100svh; padding: 1.25rem; background: rgb(var(--color-paper)); }
+  .legal-masthead { max-width: 72rem; margin-inline: auto; border-bottom: 1px solid rgb(var(--color-ink)); display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 1rem; }
+  .legal-masthead .account-wordmark { margin: 0; }
+  .legal-reading { max-width: 66ch; margin: clamp(2rem, 5vw, 4rem) auto; line-height: 1.8; overflow-wrap: anywhere; }
+  .legal-reading h1 { font: 400 clamp(2rem, 5vw, 3rem) / 1.15 var(--font-display); margin-bottom: 2rem; color: rgb(var(--color-ink)); }
+  .legal-reading h2 { font: 600 1.25rem / 1.4 var(--font-sans); margin-block: 2rem 0.75rem; color: rgb(var(--color-ink)); }
+  .legal-reading p, .legal-reading ul { color: rgb(var(--color-muted)); }
+  .legal-reading li + li { margin-top: 0.75rem; }
+  @media (min-width: 1024px) {
+    .inbox-layout { grid-template-columns: minmax(16rem, 0.8fr) minmax(0, 1.8fr); height: max(36rem, calc(100svh - 20rem)); }
+    .inbox-list { max-height: none; }
+    .inbox-thread { min-height: 0; }
+    .inbox-message { max-width: 80%; }
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .account-page *, .account-workspace * { transition: none !important; scroll-behavior: auto !important; }
 }
 
 @media (prefers-reduced-motion: reduce) {
