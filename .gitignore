@@ -25,3 +25,13 @@ dist-ssr
 *.sln
 *.sw?
 .aider*
+
+# Retained task-local audit evidence (do not delete)
+.baseline-audit/
+.build-gate-audit/
+.lint-gate-audit/
+.visual-audit/
+.db-bootstrap-audit/
+.local-runtime-audit/
+.auth-session-audit/
+.interim-audit/

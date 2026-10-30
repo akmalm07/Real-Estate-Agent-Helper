@@ -35,7 +35,15 @@
     "D009.subtle-tech-refinement": {
       "answer": "User says they like the redesign and explicitly requests making it a bit techy, not too much, while keeping its harmony. Preserve the current coherent warm/editorial/photos direction and make a restrained polish, not a redesign restart. Concrete typography/metadata/numeral/border/status/feedback choices are manager-selected implementation details, not a user-requested new brand, feature set or dark/neon theme.",
       "at": "2026-10-30T01:53:08.949201+00:00"
+    },
+    "D010.interim-pr-readme-demo-cleanup": {
+      "answer": "User explicitly requested: Can you just push the PR and update the read me, as well as adding a video demo in the readme, and delete any unnecessary files? Authorizes interim PR publication, accurate README, real playable demo and bounded verified unnecessary-file cleanup. Not authorization to merge, deploy, discard unfinished work, waive full-app acceptance or delete recovery evidence.",
+      "at": "2026-10-30T23:29:00.312819+00:00"
+    },
+    "D011.interim-publication-default": {
+      "answer": "Manager-selected safe delivery default, not a separate user specification: DRAFT PR of reviewed commit 0ba82333c58751f6cebb1ffbadce53b0227afb7e plus independently reviewed README/demo/cleanup and authority amendment, remote fix/functional-repair into main. Use isolated linked worktree/local docs/reviewed-demo-pr branch; preserve and exclude dirty auth/cache candidate and all evidence. Explicitly label fixture-driven video and remaining functional work. Preserve original final acceptance graph; later final publication updates same PR.",
+      "at": "2026-10-30T23:29:00.397785+00:00"
     }
   },
-  "last_updated": "2026-10-30T01:53:08.949214+00:00"
+  "last_updated": "2026-10-30T23:29:00.397835+00:00"
 }
