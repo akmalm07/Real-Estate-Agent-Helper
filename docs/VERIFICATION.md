@@ -537,3 +537,253 @@ SQL/bootstrap-only; preserved Neon HTTP app driver, auth/API/browser integration
 Google-shaped local email simulation, remaining core/message repairs, full feature
 matrix and final PR are later manager-routed milestones. Overall application goal
 is not complete and no review approval is claimed here.
+
+## Credential-free real-DB local runtime — t_68243be5 (2026-10-30)
+
+Unstaged working-tree implementation on `fix/functional-repair`, approved base
+`0086b0b7ef786058e3b1f95e2e53220bb993ba9a`. No agents, staging, commits, pushes,
+cloud commands, container creation/stopping, retained-resource deletion, frontend
+edits or frontend test/build reruns. Existing supervisor evidence is preserved;
+all new raw logs use `.local-runtime-audit/worker-*`.
+
+Changed implementation paths:
+
+- `backend/db/index.js`, new `backend/db/local-test.js`: default production Neon
+  branch preserved; real pg/Drizzle transport only after trusted composition.
+- `backend/src/server.js`, new `backend/src/app.js`: separate unchanged mounted
+  routes/middleware from listening; production still loads dotenv normally.
+- `backend/src/{outlook,microsoft-auth,google-auth,phone,pubsub-webhook-helpers}.js`
+  and `backend/src/ai/{sms-reply,email-reply,lead-scorer}.js`: only lazy original SDK
+  construction, import-safe absent scopes, and local-only dotenv avoidance.
+- New `backend/src/testing/{local-boundary,verified-container,egress,local-start}.js`:
+  explicit composition, strict input/container guards, pre-import egress guards.
+- New `backend/test/local-runtime.test.js` and
+  `backend/test/support/{local-runtime-child,default-runtime-child}.js`: explicit
+  HTTP/real-driver acceptance, IPC controls and safe default-startup regression.
+- `backend/package.json`, `backend/package-lock.json`: explicit runtime test script
+  and pinned dev-only pg8.16.3 plus its ordinary dependency closure.
+- `docs/LOCAL-SETUP.md`, this append-only evidence section.
+
+Authority/instruction files, schema, migrations, routes/business logic and all
+frontend files are unchanged. No fake provider credentials or minted-token auth
+bypass. Synthetic JWT configuration is installed only inside the guarded child.
+
+### Exact commands and observed results
+
+All commands below use cached Node22.22.0. Backend CWD unless marked root.
+`P` below denotes the literal prefix
+`env -i PATH="$PATH" HOME=/root REAH_LOCAL_CONTAINER=reah-bootstrap-t9d4a7723-review40 npm exec --offline --package=node@22.22.0 --`.
+
+| Command | Exit / result |
+|---|---|
+| Before production edits: `env -i PATH="$PATH" HOME=/root npm exec --offline --package=node@22.22.0 -- node --experimental-test-module-mocks --input-type=module -e "import {mock} from 'node:test'; mock.module('dotenv',{defaultExport:{config(){}}}); mock.module('dotenv/config',{namedExports:{}}); await import('./src/server.js');"` | **1 RED**, actual `neon()` throws `No database connection string was provided`; `worker-red-startup.log`. Dotenv alone is mocked to prohibit file access; DB/provider modules are not mocked. Earlier root-CWD probes (`worker-red.log`, `worker-red-neon.log`) failed test-harness dotenv resolution and are **not** product RED evidence. |
+| `env -u DATABASE_URL npm exec --offline --package=node@22.22.0 -- npm install --offline=false --save-dev --save-exact pg@8.16.3 --ignore-scripts --no-audit --no-fund` | **0**, 14 dependency packages added, no scripts/audit; `worker-install.log` |
+| `P npm run test:local-runtime` first execution | **1**, `worker-runtime-first.log`: guard denied Node's numeric-address listener lookup, before HTTP acceptance; one fresh DB retained. A no-bootstrap diagnostic against that same DB (`worker-startup-diagnostic.log`) isolated `dns.lookup` from `Server.listen`. Focused fix permits only numeric127.0.0.1 lookup; all TCP connections still denied. |
+| `P npm run test:local-runtime` second execution | **0**, 1/1 then-current integration test; `worker-runtime-second.log` |
+| `env -i PATH="$PATH" HOME=/root npm exec --offline --package=node@22.22.0 -- node --test --test-name-pattern='startup boundaries' test/local-runtime.test.js` | **0**, 1/1 startup-only regression, no new DB; `worker-startup-final.log` |
+| `P npm run test:local-runtime` final source | **0**, **2/2 pass**, 0 fail/cancelled/skipped/todo; 9.31s; `worker-runtime-final.log` |
+| `env -i PATH="$PATH" HOME=/root npm exec --offline --package=node@22.22.0 -- node --test --test-name-pattern='explicit credential-free' test/local-runtime.test.js` | **1 expected**, missing named opt-in rejected before Docker/DB bootstrap; `worker-no-opt-in.log` |
+| Root: `git diff --exit-code -- frontend REQUIREMENTS.md decisions.json AGENTS.md CLAUDE.md STYLE.md backend/CLUADE.md backend/STYLE.md frontend/CLUADE.md frontend/STYLE.md backend/db/schema.js backend/db/migrations backend/src/routes` | **0**, protected paths unchanged |
+| Root: `git diff --cached --quiet` and `git diff --check` | **0** each; no staged changes / whitespace errors |
+
+Three full invocations each created exactly one DB/bootstrap; retained synthetic
+DB suffixes are `695a2b68ecd053eb72edadb1` (listener-guard failure),
+`d03513d9bea46ffc6c599412` (first passing integration), and
+`1c5943e0f045ee606c8c0234` (final). No redundant reference databases or container
+were created. The startup-only rerun and diagnostic created none. No cleanup
+container commands were attempted. Linux host-root socket access was verified
+at `/proc/165937/root/var/run/postgresql/.s.PGSQL.5432`; the code derives PID anew.
+
+### Executed acceptance and honest boundaries
+
+- Fresh template0 database + actual copied SQL includes + COMMIT; genuine driver
+  query returns **13 public tables**. No psql-backed query mock or HTTP proxy.
+- Real mounted Express app on free127.0.0.1 port; existing signup issues cookie;
+  existing property POST201/GET200 persist a synthetic `example.invalid` record.
+  App/listener/pool close, a new process starts, existing login issues a new cookie,
+  and GET returns the **same complete row including ID/data**.
+- Unauthenticated requests (including `simulation=true&local=true`) remain401;
+  no simulation routes/auth rewrites. Occupied owned port rejects with actual
+  address/port and EADDRINUSE rather than falsely reporting startup success.
+- Existing notes HTTP endpoint rejects missing lead with404. This is its actual
+  relational precheck, **not a database FK error through HTTP**. Separately, an
+  actual guarded app-pool INSERT rejects that missing lead with PostgreSQL23503.
+  Existing route defects were not repaired to force a different HTTP outcome.
+- Production mode, nonloopback bind, DATABASE_URL, provider secret and nonlocal
+  frontend config are rejected in child processes before application imports;
+  unexpected option keys also fail. Default DB subprocess, with dotenv mocked
+  only, reproduces real Neon missing-URL rejection despite mere local env flags.
+- `.env` filesystem access is forbidden by the fixture, including sync/callback/
+  promise read/open/stat/access paths. Clean child env contains no provider secrets
+  or URL. The app has no local dotenv import and production dotenv remains intact.
+- Unknown fetch, HTTP/HTTPS requests/get, direct net/Socket TCP or wrong Unix path,
+  and TLS fail closed. Concrete Gmail/Graph/OpenAI/Telnyx destinations reject;
+  real Google SDK token path, Graph helper, SMS helper and AI parse entrypoint
+  reject locally. AI rejection is missing credentials, not a successful AI reply.
+  Telnyx logs expected ConnectionError with LOCAL_EGRESS_DENIED cause (no delivery).
+- Existing email helper captures one reserved-invalid recipient envelope and
+  rejects arbitrary recipients. Existing password-reset HTTP action also captures
+  its email locally after restart. No Google/Graph/AI/SMS/email live delivery or
+  credentials were used. Default Neon check emits Node's module-mock experimental
+  warning; real-DB HTTP test does **not** mock the DB, routes or providers.
+
+These process-local JavaScript guards protect existing Node SDK paths, not
+arbitrary malicious native code or operator commands. This is genuine local
+PostgreSQL application-driver integration, **not live Neon/provider integration**.
+Auth-purpose/tenant fixes, core contracts, ingestion/idempotency, authenticated
+browser flows and final application acceptance remain later tasks. Frontend
+provenance is unchanged and is for the supervisor to bind, not rerun here.
+
+## Supervisor final runtime verification — t_68243be5 (2026-10-30)
+
+This section supersedes the preceding worker's uncommitted snapshot, not the
+historical evidence. Run41 preserved a working implementation before subscription
+rate limits interrupted its supervisor; intervening managed-worker attempts made
+no progress. Run67 recovered those exact files and performed only the verified
+listener repair, final checks, documentation and candidate audit. No baseline
+restart, additional coding agent, provider operation or container creation.
+
+### Default listener defect and repair evidence
+
+`backend/src/server.js` still used Express's unconditional listen callback, unlike
+the already-correct guarded local entrypoint. One focused repair1 exited0 but
+retained no implementation: its attempted test used system Node18 and failed
+`bad option: --experimental-test-module-mocks` before server import. This is a
+harness failure, **not product RED**, and no green log exists for that attempt.
+
+The final permitted repair2 used cached Node22.22.0. From `backend/`:
+
+```sh
+npm exec --offline --package=node@22.22.0 -- node --test --test-name-pattern="default server" test/local-runtime.test.js
+```
+
+Before server changes it returned1: the actual occupied-port child exited0
+(`repair2-red.log`). That assertion stops before stderr assertions, so the RED
+log does not independently print EADDRINUSE. After changing only the default
+entrypoint to observe real `listening`/`error` events and set exitCode1 on failure,
+it returned0 (`repair2-green.log`, 1/1). The passing regression checks EADDRINUSE,
+nonzero exit, absence of false success, real port0 allocation and HTTP401 from the
+existing `/api/auth/me`. Dotenv alone is mocked in the default-server fixture;
+real app/router/Neon/provider modules import with a synthetic unused loopback URL,
+no provider credentials or DB query. Its net.connect guard is narrower than the
+full guarded-local egress composition; it makes no provider calls. Its owned
+positive child is terminated after HTTP readback. The guarded real-DB fixture
+separately closes its actual listener/pool and asserts child exit0.
+
+Final candidate adds `backend/test/support/default-server-child.js` to the worker
+manifest above. Exactly **24 paths** are intended, including the two evidence
+files; no authority/instruction files, migrations, routes, frontend or generated
+artifacts belong to this commit. Existing app mounts/middleware are copied intact
+to app.js, including the still-disabled Microsoft mount. Provider changes defer
+only original SDK construction; production Neon/Google implementations remain.
+
+### Independently executed final checks
+
+All ten commands ran sequentially after worker exit, with no dependency install,
+source writer overlap or gate weakening. Root unless specified. Every command
+uses a clean `env -i PATH="$PATH" HOME=/root` and literal prefix
+`npm exec --offline --package=node@22.22.0 --`. Only the runtime invocation adds
+`REAH_LOCAL_CONTAINER=reah-bootstrap-t9d4a7723-review40`. Executable audit runner:
+`node .local-runtime-audit/verify-final.mjs`; exit0. Individual cwd/arguments,
+expected/actual exits and log paths are in
+`.local-runtime-audit/supervisor-final-results.json`. Per-path SHA256/byte input
+manifest is `supervisor-final-inputs.json`; equality was checked after all gates.
+Only the two documentation files were updated afterward; executable inputs are
+bound again in the precommit audit. No unchanged frontend evidence was substituted
+for these **new actual executions**.
+
+| Exact command following the prefix | Directory | Exit / actual result |
+|---|---|---|
+| `npm run test:local-runtime` | backend | 0; **3/3** runtime/startup/default-listener tests, 0 failures/skips/cancellations; `supervisor-final-runtime.log` |
+| `node --test --test-name-pattern='startup boundaries\|default server' backend/test/local-runtime.test.js` | root | 0; **2/2**, no DB creation; `supervisor-final-startup-only.log` |
+| `node --test --test-name-pattern='explicit credential-free' backend/test/local-runtime.test.js`, no opt-in | root | **1 expected**, named opt-in assertion before Docker/SQL; `supervisor-final-no-opt-in.log` |
+| Same command, explicit `REAH_LOCAL_CONTAINER=not-the-approved-container` | root | **1 expected**, same pre-Docker rejection; `supervisor-final-wrong-opt-in.log` |
+| `node --test backend/test/lead-scoring.test.js` | root | 0; **53/53**, no module mocks/credentials/AI calls; pure scoring, not provider integration; `supervisor-final-scoring.log` |
+| `npm test` | frontend | 0; **61/61**, no failures/skips/cancellations; `supervisor-final-frontend-tests.log` |
+| `npm run lint` | frontend | 0; unchanged ESLint gate; `supervisor-final-frontend-lint.log` |
+| `npm exec -- tsc -b --force` | frontend | 0; forced typecheck; `supervisor-final-frontend-types.log` |
+| `npm run build` | frontend | 0; real `tsc -b && vite build`, **1672 modules**, 5.87s; `supervisor-final-frontend-build.log` |
+| `node .build-gate-audit/inspect-bundle.mjs` | root | 0; actual generated HTML/JS/CSS HTTP200/byte equality on owned ephemeral server, closed; `supervisor-final-bundle-smoke.log` |
+
+Runtime logs disclose expected PostgreSQL existing-column notices, Node's module
+mock experimental warning and Telnyx ConnectionError whose cause is the deliberate
+LOCAL_EGRESS_DENIED. Frontend emits existing React renderer/MockTimers warnings;
+Vite emits nonfailing plugin-timing advisory. None is hidden or treated as live
+provider success. Bundle JS SHA256
+`675bf06d9d8ce37a35c5853aeeea12a3d9f55b2f9ea748216aea7857c928dc25`,
+443303 bytes; CSS SHA256
+`b644490a88733b9f3c2d3624dd6099d77e1b0e4ddd816b44161fba616311fc55`,
+38994 bytes; HTML473 bytes. This smoke is static artifact HTTP, not browser E2E.
+
+### Acceptance mapping and isolation
+
+1. Verified retained task-owned PostgreSQL17.7 container image/ID, label, Unix
+   socket, network none, no ports/mounts/binds and tmpfs. One new template0 DB
+   `reah_local_t68243be5_2d2d3780cf47de88fea46865` bootstrapped actual included
+   SQL once. Real pg/Drizzle driver sees all13tables; mounted Express listens on
+   free127.0.0.1, with missing credentials and dotenv access forbidden.
+2. Real existing signup issues session cookie, property POST201/GET200 persists
+   synthetic data. After full process/listener/pool restart, existing login issues
+   a new cookie and GET returns the same complete row/ID. Missing-lead notes
+   HTTP404 is a relational precheck; separately real app-pool SQL rejects missing
+   lead with FK23503. **No claim that HTTP404 is a SQL rejection or that a DB FK
+   error was surfaced through HTTP.** No production auth bypass/minted session.
+3. Guard installed before app imports denies fetch/HTTP/HTTPS/net/Socket/TLS
+   unknown egress; specific Google/Graph/AI/SMS paths reject, existing email
+   envelope and reset endpoint capture only reserved-invalid synthetic recipients.
+   No provider network delivery. Startup rejects production/nonloopback mode,
+   inherited URL/secret/nonlocal frontend settings and unexpected options;
+   request simulation/local flags do not install composition or bypass auth.
+   Process-local JavaScript safeguards are not a native-code/OS security sandbox.
+4. Default-off child still executes real Neon missing-URL failure despite local
+   environment flags. Production default server preserves dotenv/Neon/Google and
+   remains independent of local pg. Safe explicit script and Linux/procfs/socket
+   prerequisites are documented; no inherited .env/production URL is read locally.
+5. New independent frontend61/lint/types/full build/static smoke and backend3 plus
+   startup-only2/2 pass on hash-bound unchanged executable inputs. Reviewer must
+   repeat real app-driver SQL/HTTP, startup and unsafe/default-off guards on the
+   committed candidate; mocked helper tests are not acceptance substitutes.
+
+Before final gates: available1130MiB/no swap, load0.53/0.50/0.47, owned tmpfs216MiB.
+After gates: available785MiB/no swap, tmpfs219MiB. No parallel builds/DBs or denied
+cleanup retries. Five runtime synthetic databases now remain in the same approved
+parent container: three worker runs, earlier supervisor run and this final run;
+no redundant new container/reference schema. Readback lists all five. They and
+prior SQL-review databases/SQL copies remain for separately authorized cleanup.
+No unrelated or approval-denied resources were stopped.
+
+### Model execution, audited staging and handoff boundary
+
+One original implementation plus two distinct repair runs total; all OpenCode
+processes exited0. Actual model/usage from session exports (standard speed,
+default effort; reported output and reasoning are not added together):
+
+| Run | Requested / observed model | Input | Cached-read | Output | Reasoning |
+|---|---|---:|---:|---:|---:|
+| Original | openai/gpt-6.1-sol / gpt-6.1-sol | 65434 | 1605888 | 13520 | 3367 |
+| Repair1 (no fix) | openai/gpt-6-luna / gpt-6-luna | 22675 | 307456 | 3018 | 1445 |
+| Repair2 | openai/gpt-6-luna / gpt-6-luna | 30078 | 88320 | 2118 | 1174 |
+
+Repair prompt estimate12k input/4k output was exceeded on input. No hard CLI
+output limit is available; repair ceiling honored. Stored OpenAI account; actual
+invoice/quota/billing surface unavailable, client zero cost is not free-use proof.
+The supervisor's earlier managed-worker quota interruptions are separate from
+these exported OpenCode runs. Source recovery did not reset the repair budget.
+
+Final precommit audit is `.local-runtime-audit/supervisor-candidate-metadata.json`:
+exact24-path staged equality; full staged SHA256/bytes and candidate tree; unchanged
+protected authority/schema/routes/frontend; append-only verification versus HEAD;
+explicit secret/private-data/unsafe-code scans plus manual synthetic-fixture and
+diff review. Synthetic local JWT/password strings, reserved-invalid identities,
+unused loopback URL and deliberate rejection examples are test data, not real
+credentials. No runtime capture/token, .env, private data, logs, screenshots,
+node_modules or unrelated untracked files are staged. Pattern checks are bounded,
+not an exhaustive security audit. Scope lock validates via factoryctl. Metadata
+is prepared **before** the final feature-branch commit; exact commit belongs in
+the immediate native **same-card mvp-reviewer** handoff, not a new review card.
+
+No push/PR/merge/deployment or overall app acceptance. Auth token-purpose/cache,
+core/message/ingestion repairs, Google-shaped ingestion fixtures, authenticated
+browser matrix and final PR remain serialized later cards. This card provides
+runtime plumbing and awaits independent native approval before its implementation
+successor can run.

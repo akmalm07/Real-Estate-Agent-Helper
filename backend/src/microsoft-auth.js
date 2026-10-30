@@ -14,7 +14,7 @@ const clientSecret = process.env.MICROSOFT_CLIENT_SECRET;
 const redirectUri = process.env.MICROSOFT_REDIRECT_URI;
 
 // Microsoft expects space‑separated scopes in the authorization URL.
-const SCOPES_LIST = process.env.MICROSOFT_SCOPES.split(',');
+const SCOPES_LIST = (process.env.MICROSOFT_SCOPES || '').split(',').filter(Boolean);
 const SCOPES = SCOPES_LIST.join(' ');
 
 /*

@@ -5,7 +5,8 @@
   "main": "index.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
-    "db:bootstrap:test": "node --test test/schema-bootstrap.test.js"
+    "db:bootstrap:test": "node --test test/schema-bootstrap.test.js",
+    "test:local-runtime": "node --test test/local-runtime.test.js"
   },
   "keywords": [],
   "author": "",
@@ -28,6 +29,7 @@
     "ws": "^8.21.0"
   },
   "devDependencies": {
-    "drizzle-kit": "^0.31.10"
+    "drizzle-kit": "^0.31.10",
+    "pg": "8.16.3"
   }
 }

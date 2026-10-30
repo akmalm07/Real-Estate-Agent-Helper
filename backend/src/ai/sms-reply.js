@@ -9,6 +9,7 @@
  */
 
 import OpenAI from 'openai';
+import { lazyClient } from '../testing/local-boundary.js';
 import {
   buildAgentSection,
   buildPropertySection,
@@ -19,7 +20,7 @@ import {
   SHARED_GUIDELINES,
 } from './prompt-helpers.js';
 
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+const openai = lazyClient(() => new OpenAI({ apiKey: process.env.OPENAI_API_KEY }));
 
 /*
 |--------------------------------------------------------------------------

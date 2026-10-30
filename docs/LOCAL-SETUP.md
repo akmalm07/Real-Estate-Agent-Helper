@@ -1,8 +1,10 @@
 # Local PostgreSQL schema bootstrap
 
-This is SQL/bootstrap verification, **not** application/Neon HTTP integration.
-The production driver in `backend/db/index.js` is unchanged; pointing it at plain
-PostgreSQL does not provide Neon's HTTP endpoint. No provider credentials are needed.
+This first section covers SQL/bootstrap verification, **not** application/Neon HTTP
+integration. The production Neon default in `backend/db/index.js` is preserved;
+pointing it at plain PostgreSQL does not provide Neon's HTTP endpoint. The explicit
+real-driver local composition is documented separately below. No provider
+credentials are needed for these isolated checks.
 
 ## Prerequisites and safe command
 
@@ -126,3 +128,65 @@ The tmpfs databases disappear when that container is stopped; reruns require a
 supervisor-provided, verified task container. Do not reuse the earlier baseline
 container. These SQL tests do not establish backend startup, browser acceptance,
 authentication, ingestion or live-provider functionality.
+
+## Explicit real-driver local runtime — t_68243be5
+
+The separate runtime harness now exercises the mounted Express application using
+real PostgreSQL protocol queries through `pg` / `drizzle-orm/node-postgres`.
+Ordinary production startup remains `node src/server.js`, with dotenv and
+`neon()` / `drizzle-orm/neon-http`; it never imports `pg` unless the trusted local
+composition has been explicitly installed. No environment flag or HTTP parameter
+installs that composition. `pg@8.16.3` is a pinned development dependency.
+
+Prerequisites: Linux host-root access to the **already retained** container
+`reah-bootstrap-t9d4a7723-review40`, Docker inspect/exec/cp access, cached Node
+22.22.0, and installed backend development dependencies. The harness requires
+that exact name, task label `t_9d4a7723`, running cached `postgres:17.7-alpine`
+image (matching image ID), network none, no port bindings, no mounts/binds and
+tmpfs PGDATA. It verifies the actual socket type at
+`/proc/<docker inspect State.Pid>/root/var/run/postgresql/.s.PGSQL.5432`.
+This Linux `/proc` capability is required; a rootless/remote Docker daemon or
+restricted procfs may not support it. Fail closed there: do not substitute a URL,
+TCP forwarding, another container or a real database. No container lifecycle
+operation is part of this task's runtime command.
+
+From `backend/`, run only the explicit script:
+
+```sh
+env -i PATH="$PATH" HOME=/root REAH_LOCAL_CONTAINER=reah-bootstrap-t9d4a7723-review40 npm exec --offline --package=node@22.22.0 -- npm run test:local-runtime
+```
+
+Each invocation creates **one** uniquely named
+`reah_local_t68243be5_<24 random hex>` database from template0, copies the current
+migration directory (including actual `\ir` files), and bootstraps it once using
+`docker exec psql -X -v ON_ERROR_STOP=1`. Only bootstrap uses psql; application
+queries use the real driver. The DB and scoped SQL directory are retained, not
+dropped. Avoid unnecessary full reruns. Startup-only regression (no new DB):
+
+```sh
+env -i PATH="$PATH" HOME=/root npm exec --offline --package=node@22.22.0 -- node --test --test-name-pattern='startup boundaries|default server' test/local-runtime.test.js
+```
+
+The trusted API is `src/testing/local-start.js:startLocalApp({host, port,
+database})`, used by the IPC test fixture, not a request-facing route or an
+environment-selected server. App children receive only PATH, HOME, NODE_ENV and
+the named-container opt-in. The API rejects other inherited settings (including
+DATABASE_URL and provider credentials), requires test/development mode and
+127.0.0.1 binding, then installs guards **before** dynamic application imports.
+It supplies only synthetic JWT settings, never provider API credentials. No
+dotenv file is read in that process. Production dotenv behavior is preserved.
+The app listens on an OS-assigned port; bind errors reject with the actual
+requested address/port. HTTP clients remain outside the guarded child.
+
+The process guard denies unknown fetch, HTTP/HTTPS, net/Socket, TLS and DNS
+destinations. Only the verified PG Unix socket can connect. Node's numeric
+127.0.0.1 listener lookup is allowed; this does not authorize loopback TCP clients.
+The one fetch capture accepts only the existing Twilio email POST envelope to
+one `example.invalid` recipient, stores no Authorization header, and performs no
+network request. All other provider calls fail locally. IPC exposes fixed test
+actions only, not HTTP bypass routes. Listener and pool handles close and owned
+children exit after tests; the retained DB/container remain for operator review.
+
+This verifies manual-auth/property HTTP persistence and runtime safety, not live
+Neon/provider integration, ingestion, browser acceptance or repaired auth/core
+contracts. Those remain later tasks. Never run blanket backend test discovery.
