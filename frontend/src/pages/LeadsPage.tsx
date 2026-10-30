@@ -1,5 +1,5 @@
 import { useState, useMemo, useCallback } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { Link } from 'react-router-dom'
 import { Card } from '../components/ui/Card'
 import { LeadStatusBadge } from '../components/ui/Badge'
 import { SkeletonTable } from '../components/ui/Skeleton'
@@ -37,7 +37,6 @@ const STATUS_FILTERS = [
 
 export function LeadsPage() {
   const { cache, loading, error, reload, addLead, updateLead, removeLead, properties } = useDashboardCache()
-  const navigate = useNavigate()
 
   const [searchRaw, setSearchRaw]       = useState('')
   const [statusFilter, setStatusFilter] = useState('all')
@@ -188,7 +187,7 @@ export function LeadsPage() {
       {/* Toast */}
       {toast && (
         <div className={`fixed bottom-6 right-6 z-50 text-sm font-medium px-4 py-3 rounded-xl shadow-lg flex items-center gap-2 max-w-sm ${
-          toast.type === 'warning' ? 'bg-amber-50 border border-amber-200 text-amber-800' : 'bg-[#0f172a] text-white'
+          toast.type === 'warning' ? 'bg-caution-subtle border border-caution text-caution' : 'bg-foreground text-primary-foreground'
         }`}>
           {toast.type === 'warning'
             ? <AlertTriangle className="w-4 h-4 text-amber-500 flex-shrink-0" />
@@ -197,26 +196,26 @@ export function LeadsPage() {
         </div>
       )}
 
-      <div className="space-y-5">
+      <div className="crm-workspace space-y-5">
         {/* Page header */}
-        <div className="flex items-center justify-between">
+        <div className="crm-page-header">
           <div>
-            <h2 className="text-lg font-semibold text-[#0f172a]">Leads</h2>
-            <p className="text-sm text-[#94a3b8] mt-0.5">{filtered.length} of {leads.length} leads</p>
+            <h1 className="crm-page-title">Leads</h1>
+            <p className="text-sm text-muted-foreground mt-1">{filtered.length} of {leads.length} leads</p>
           </div>
           <Button variant="primary" icon={<UserPlus className="w-4 h-4" />} onClick={openAdd}>Refer Lead</Button>
         </div>
 
         {/* Unverified banner */}
         {unverifiedCount > 0 && statusFilter !== 'unverified' && (
-          <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 flex items-center gap-3">
-            <ShieldAlert className="w-4 h-4 text-amber-600 flex-shrink-0" />
-            <p className="text-sm text-amber-800 flex-1">
+          <div className="crm-attention">
+            <ShieldAlert aria-hidden="true" className="w-5 h-5 flex-shrink-0" />
+            <p className="text-sm flex-1 min-w-0">
               <span className="font-semibold">{unverifiedCount} unverified lead{unverifiedCount !== 1 ? 's' : ''}</span>
               {' '}require your review before they can be contacted.
             </p>
             <button onClick={() => setStatusFilter('unverified')}
-              className="text-xs font-semibold text-amber-700 hover:text-amber-900 underline underline-offset-2 transition-colors flex-shrink-0">
+              className="text-sm font-semibold underline underline-offset-4 flex-shrink-0">
               Review now
             </button>
           </div>
@@ -224,23 +223,24 @@ export function LeadsPage() {
 
         {/* Filters */}
         <Card>
-          <div className="px-5 py-3 flex flex-col sm:flex-row gap-3">
-            <div className="flex-1">
-              <Input icon={Search} placeholder="Search by name, email, phone, source, or status..." value={searchRaw} onChange={(e) => setSearchRaw(e.target.value)} />
+          <div className="px-4 py-3 flex flex-col gap-3">
+            <div className="flex-1 min-w-0">
+              <label htmlFor="lead-search" className="crm-field-label">Search leads</label>
+              <Input id="lead-search" icon={Search} placeholder="Name, email, phone, source, or status" value={searchRaw} onChange={(e) => setSearchRaw(e.target.value)} />
             </div>
             <div className="flex items-center gap-2 flex-wrap">
-              <Filter className="w-4 h-4 text-[#94a3b8] flex-shrink-0" />
+              <Filter aria-hidden="true" className="w-4 h-4 text-muted-foreground flex-shrink-0" />
               {STATUS_FILTERS.map((s) => (
-                <button key={s[0]} onClick={() => setStatusFilter(s[1])}
+                <button key={s[0]} aria-pressed={statusFilter === s[1]} onClick={() => setStatusFilter(s[1])}
                   className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors capitalize ${
                     statusFilter === s[1]
-                      ? s[0] === 'unverified' ? 'bg-amber-500 text-white' : 'bg-[#4f46e5] text-white'
-                      : s[0] === 'unverified' ? 'bg-amber-50 text-amber-700 hover:bg-amber-100' : 'bg-[#f9fafb] text-[#475569] hover:bg-[#eef2ff] hover:text-[#4f46e5]'
+                      ? s[0] === 'unverified' ? 'bg-caution text-primary-foreground' : 'bg-primary text-primary-foreground'
+                      : s[0] === 'unverified' ? 'bg-caution-subtle text-caution hover:underline' : 'bg-background text-muted-foreground hover:bg-accent hover:text-primary'
                   }`}>
                   {s[0] === 'all' ? 'All' : s[0].replace('_', ' ')}
                   {s[0] === 'unverified' && unverifiedCount > 0 && (
                     <span className={`ml-1.5 inline-flex items-center justify-center w-4 h-4 rounded-full text-xs font-bold ${
-                      statusFilter === 'unverified' ? 'bg-white text-amber-600' : 'bg-amber-500 text-white'
+                      statusFilter === 'unverified' ? 'bg-card text-caution' : 'bg-caution text-primary-foreground'
                     }`}>{unverifiedCount}</span>
                   )}
                 </button>
@@ -249,8 +249,8 @@ export function LeadsPage() {
           </div>
 
           {/* Table */}
-          <div className="border-t border-[#e5e7eb]">
-            <div className="hidden sm:grid grid-cols-[2fr_1fr_1.5fr_1fr_220px] gap-4 px-5 py-2.5 bg-[#f9fafb] border-b border-[#e5e7eb]">
+          <div className="border-t border-border min-w-0">
+            <div className="crm-lead-columns crm-lead-heading gap-3 px-4 bg-background border-b border-border">
               <SortableHeader label="Name"     sortKey="name"       sort={sort} onSort={handleSort} />
               <SortableHeader label="Source"   sortKey="source"     sort={sort} onSort={handleSort} />
               <SortableHeader label="Status"   sortKey="status"     sort={sort} onSort={handleSort} />
@@ -263,7 +263,7 @@ export function LeadsPage() {
             ) : filtered.length === 0 ? (
               <EmptyState icon={Users} title="No leads found" description="Try adjusting your search or filter." />
             ) : (
-              <div className="divide-y divide-[#e5e7eb]">
+              <div className="divide-y divide-border">
                 {filtered.map((lead) => {
                   const isUnverified = lead.status === 'unverified'
                   const isReady      = lead.status === 'active' || lead.status === 'converted'
@@ -276,54 +276,60 @@ export function LeadsPage() {
 
                   return (
                     <div key={lead.id}
-                      onClick={() => !isUnverified && navigate(`/leads/${lead.id}`)}
-                      className={`grid grid-cols-1 sm:grid-cols-[2fr_1fr_1.5fr_1fr_220px] gap-4 px-5 py-3.5 transition-colors items-center ${
-                        isUnverified ? 'bg-amber-50/40 hover:bg-amber-50' : 'hover:bg-[#f9fafb] cursor-pointer'
+                      className={`crm-lead-columns gap-3 px-4 py-3 transition-colors items-center ${
+                        isUnverified ? 'bg-caution-subtle/50' : 'hover:bg-background'
                       }`}
                     >
                       {/* Name */}
-                      <div className="flex items-center gap-3">
-                        <div className={`w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 ${isUnverified ? 'bg-amber-100' : 'bg-[#eef2ff]'}`}>
+                      <div className="flex items-center gap-3 min-w-0">
+                        <div aria-hidden="true" className={`w-8 h-8 rounded-md flex items-center justify-center flex-shrink-0 ${isUnverified ? 'bg-caution-subtle' : 'bg-accent'}`}>
                           {isUnverified
-                            ? <ShieldAlert className="w-4 h-4 text-amber-600" />
-                            : <span className="text-xs font-semibold text-[#4f46e5]">{getInitials(lead.name)}</span>}
+                            ? <ShieldAlert className="w-4 h-4 text-caution" />
+                            : <span className="text-xs font-semibold text-primary">{getInitials(lead.name)}</span>}
                         </div>
-                        <div className="min-w-0 flex items-center gap-2">
-                          <p className="text-sm font-medium text-[#0f172a] truncate">
-                            <HighlightedText text={lead.name} query={search} />
-                          </p>
+                        <div className="min-w-0">
+                          {isUnverified ? (
+                            <p className="text-sm font-semibold"><HighlightedText text={lead.name} query={search} /></p>
+                          ) : (
+                            <Link to={`/leads/${lead.id}`} className="inline-flex items-center text-sm font-semibold text-primary underline underline-offset-4">
+                              <HighlightedText text={lead.name} query={search} />
+                            </Link>
+                          )}
                           {isReady && <LeadReadyIndicator lead={lead} />}
-                          <p className="text-xs text-[#94a3b8] mt-0.5">{formatRelativeTime(lead.updatedAt)}</p>
+                          <p className="text-xs text-muted-foreground mt-0.5">{formatRelativeTime(lead.updatedAt)}</p>
                         </div>
                       </div>
 
                       {/* Source */}
-                      <div className="hidden sm:block">
-                        <span className="text-sm text-[#475569]"><HighlightedText text={lead.source} query={search} /></span>
+                      <div className="min-w-0">
+                        <span className="crm-mobile-label">Source: </span>
+                        <span className="text-sm text-muted-foreground"><HighlightedText text={lead.source} query={search} /></span>
                       </div>
 
                       {/* Status */}
-                      <div className="hidden sm:block">
+                      <div className="min-w-0">
+                        <span className="crm-mobile-label">Status: </span>
                         <LeadStatusBadge status={lead.status} />
                       </div>
 
                       {/* Property */}
-                      <div className="hidden sm:block text-sm text-[#0f172a]">
+                      <div className="min-w-0 text-sm text-foreground">
+                        <span className="crm-mobile-label">Property: </span>
                         {interestedProperty
                           ? <HighlightedText text={interestedProperty.address} query={search} />
                           : 'N/A'}
                       </div>
 
                       {/* Actions */}
-                      <div className="hidden sm:flex justify-end items-center gap-2" onClick={(e) => e.stopPropagation()}>
+                      <div className="crm-lead-actions flex flex-wrap items-center gap-2">
                         {isUnverified ? (
                           <>
                             <button onClick={() => setVerifyTarget(lead)}
-                              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-amber-500 text-white hover:bg-amber-600 transition-colors whitespace-nowrap">
+                              aria-label={`Verify ${lead.name}`} className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold bg-caution text-primary-foreground hover:underline whitespace-nowrap">
                               <CheckCircle2 className="w-3.5 h-3.5" /> Verify
                             </button>
                             <button onClick={() => setDeleteUnverifiedTarget(lead)}
-                              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-white text-red-600 border border-red-200 hover:bg-red-50 transition-colors whitespace-nowrap">
+                              aria-label={`Delete ${lead.name}`} className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold bg-card text-destructive border border-destructive hover:bg-destructive-subtle whitespace-nowrap">
                               <Trash2 className="w-3.5 h-3.5" /> Delete
                             </button>
                           </>

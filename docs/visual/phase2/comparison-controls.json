@@ -1,0 +1,60 @@
+{
+  "table": {
+    "client": 356,
+    "scroll": 780,
+    "left": 424,
+    "tabindex": 0,
+    "page": 390
+  },
+  "motion": {
+    "reduce": true,
+    "sidebarTransition": "0s"
+  },
+  "focus": {
+    "text": "Address\u2191",
+    "outline": "rgb(38, 79, 62) solid 2px",
+    "offset": "3px"
+  },
+  "requests": [
+    {
+      "path": "/api/dashboard",
+      "method": "GET",
+      "body": null
+    },
+    {
+      "path": "/api/properties",
+      "method": "GET",
+      "body": null
+    },
+    {
+      "path": "/api/messages",
+      "method": "GET",
+      "body": null
+    },
+    {
+      "path": "/api/auth/me",
+      "method": "GET",
+      "body": null
+    },
+    {
+      "path": "/api/dashboard",
+      "method": "GET",
+      "body": null
+    },
+    {
+      "path": "/api/properties",
+      "method": "GET",
+      "body": null
+    },
+    {
+      "path": "/api/messages",
+      "method": "GET",
+      "body": null
+    },
+    {
+      "path": "/api/auth/me",
+      "method": "GET",
+      "body": null
+    }
+  ]
+}

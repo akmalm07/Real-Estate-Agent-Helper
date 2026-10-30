@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback, useRef, useEffect } from 'react'
+import { useState, useMemo, useCallback } from 'react'
 import type { Property } from '../services/api'
 import { Card, CardContent } from '../components/ui/Card'
 import { Badge } from '../components/ui/Badge'
@@ -9,7 +9,7 @@ import { ErrorState } from '../components/ui/ErrorState'
 import { EmptyState } from '../components/ui/EmptyState'
 import {
   Search, Building2, Bed, Bath, Square, Plus, X,
-  DollarSign, Info, MoreVertical, Pencil, Trash2,
+  DollarSign, Info,
 } from 'lucide-react'
 import { formatCurrency, formatDate } from '../lib/utils'
 import { useDashboardCache } from '../hooks/useDashboardCache'
@@ -17,6 +17,8 @@ import { searchAndRank, getHighlightSegments, useDebounce } from '../lib/searchU
 import { sortItems, toggleSort, getSortIndicator } from '../lib/tableSortUtils'
 import type { SortState } from '../lib/tableSortUtils'
 import { BACKEND_URL } from '../consts'
+import { ModalFrame, SectionHeader } from '../components/leads/LeadFormShared'
+import { LeadMenu } from '../components/leads/LeadMenu'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -119,27 +121,14 @@ function SortableHeader({ label, sortKey, sort, onSort }: {
   return (
     <button
       onClick={() => onSort(sortKey)}
-      className="flex items-center gap-1 text-xs font-semibold text-[#94a3b8] uppercase tracking-wide hover:text-[#4f46e5] transition-colors group"
+      aria-label={`${label}: ${sort.key === sortKey ? `${sort.direction}ending; reverse sort` : 'sort ascending'}`}
+      className="flex items-center gap-1 text-xs font-semibold text-muted-foreground uppercase tracking-wide hover:text-primary transition-colors group"
     >
       {label}
-      <span className={`text-xs ${sort.key === sortKey ? 'text-[#4f46e5]' : 'text-[#cbd5e1] group-hover:text-[#4f46e5]'}`}>
+      <span aria-hidden="true" className="text-xs text-primary">
         {getSortIndicator(sort, sortKey)}
       </span>
     </button>
-  )
-}
-
-function SectionHeader({ number, title, subtitle }: { number: number; title: string; subtitle?: string }) {
-  return (
-    <div className="flex items-start gap-3 mb-4">
-      <div className="w-6 h-6 rounded-full bg-[#4f46e5] text-white text-xs font-bold flex items-center justify-center flex-shrink-0 mt-0.5">
-        {number}
-      </div>
-      <div>
-        <h4 className="text-sm font-semibold text-[#0f172a]">{title}</h4>
-        {subtitle && <p className="text-xs text-[#94a3b8] mt-0.5">{subtitle}</p>}
-      </div>
-    </div>
   )
 }
 
@@ -154,45 +143,7 @@ function PropertyMenu({
   onEdit: () => void
   onDelete: () => void
 }) {
-  const [open, setOpen] = useState(false)
-  const ref = useRef<HTMLDivElement>(null)
-
-  useEffect(() => {
-    function handler(e: MouseEvent) {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
-    }
-    document.addEventListener('mousedown', handler)
-    return () => document.removeEventListener('mousedown', handler)
-  }, [])
-
-  return (
-    <div ref={ref} className="relative" onClick={(e) => e.stopPropagation()}>
-      <button
-        onClick={() => setOpen((o) => !o)}
-        className="w-7 h-7 flex items-center justify-center rounded-lg text-[#94a3b8] hover:bg-[#f1f5f9] hover:text-[#475569] transition-colors"
-      >
-        <MoreVertical className="w-4 h-4" />
-      </button>
-      {open && (
-        <div className="absolute right-0 mt-1 w-36 bg-white border border-[#e5e7eb] rounded-lg shadow-lg z-30 py-1 overflow-hidden">
-          <button
-            onClick={() => { setOpen(false); onEdit() }}
-            className="w-full flex items-center gap-2 px-3 py-2 text-sm text-[#475569] hover:bg-[#f9fafb] transition-colors"
-          >
-            <Pencil className="w-3.5 h-3.5" />
-            Edit
-          </button>
-          <button
-            onClick={() => { setOpen(false); onDelete() }}
-            className="w-full flex items-center gap-2 px-3 py-2 text-sm text-red-600 hover:bg-red-50 transition-colors"
-          >
-            <Trash2 className="w-3.5 h-3.5" />
-            Delete
-          </button>
-        </div>
-      )}
-    </div>
-  )
+  return <LeadMenu onEdit={onEdit} onDelete={onDelete} label="Property actions" />
 }
 
 // ---------------------------------------------------------------------------
@@ -211,13 +162,13 @@ function DeleteConfirmModal({
   loading: boolean
 }) {
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm p-6">
-        <h3 className="text-base font-semibold text-[#0f172a] mb-2">Delete Property</h3>
-        <p className="text-sm text-[#475569] mb-1">
-          Are you sure you want to delete <span className="font-medium text-[#0f172a]">{title}</span>?
+    <ModalFrame titleId="delete-property-title" onClose={onCancel} busy={loading}>
+      <div className="w-full max-w-sm p-6">
+        <h3 id="delete-property-title" className="text-base font-semibold mb-2">Delete Property</h3>
+        <p className="text-sm text-muted-foreground mb-1">
+          Are you sure you want to delete <span className="font-medium text-foreground">{title}</span>?
         </p>
-        <p className="text-xs text-[#94a3b8] mb-6">
+        <p className="text-xs text-muted-foreground mb-6">
           The property will be marked for deletion and removed within 30 days.
         </p>
         <div className="flex items-center justify-end gap-3">
@@ -225,7 +176,7 @@ function DeleteConfirmModal({
           <Button variant="danger" onClick={onConfirm} loading={loading}>Delete</Button>
         </div>
       </div>
-    </div>
+    </ModalFrame>
   )
 }
 
@@ -310,29 +261,29 @@ function PropertyModal({
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] flex flex-col">
+    <ModalFrame titleId="property-form-title" onClose={onClose} busy={submitting}>
+      <div className="w-full max-w-2xl flex flex-col">
 
         {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-[#e5e7eb]">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-border">
           <div>
-            <h3 className="text-base font-semibold text-[#0f172a]">
+            <h3 id="property-form-title" className="text-base font-semibold text-foreground">
               {mode === 'add' ? 'Add New Property' : 'Edit Property'}
             </h3>
-            <p className="text-xs text-[#94a3b8] mt-0.5">
+            <p className="text-sm text-muted-foreground mt-1">
               Provide as much detail as possible — this information helps the AI discuss the property with leads.
             </p>
           </div>
-          <button onClick={onClose} className="text-[#94a3b8] hover:text-[#475569] transition-colors ml-4 flex-shrink-0">
+          <button onClick={onClose} disabled={submitting} aria-label="Close property dialog" className="text-muted-foreground hover:text-foreground transition-colors ml-4 flex-shrink-0 min-w-11 flex items-center justify-center">
             <X className="w-5 h-5" />
           </button>
         </div>
 
         {/* Scrollable body */}
-        <div className="flex-1 overflow-y-auto px-6 py-5 space-y-8">
+        <div className="min-h-0 px-6 py-5 space-y-6">
 
           {errors.general && (
-            <div className="bg-red-50 border border-red-200 rounded-lg px-4 py-3 text-sm text-red-700">
+            <div role="alert" className="bg-destructive-subtle border border-destructive rounded-lg px-4 py-3 text-sm text-destructive">
               {errors.general}
             </div>
           )}
@@ -342,26 +293,26 @@ function PropertyModal({
             <SectionHeader number={1} title="Property Information" subtitle="The address and current listing status of the property." />
             <div className="space-y-4">
               <div>
-                <label className="block text-xs font-medium text-[#475569] mb-1.5">Address Line 1 <span className="text-red-500">*</span></label>
-                <input type="text" value={form.addressLine1} onChange={set('addressLine1')} placeholder="e.g. 123 Maple Street"
-                  className={`w-full px-3 py-2 text-sm border rounded-lg outline-none transition-colors ${errors.addressLine1 ? 'border-red-400 bg-red-50' : 'border-[#e5e7eb] focus:border-[#4f46e5]'}`} />
-                {errors.addressLine1 && <p className="text-xs text-red-600 mt-1">{errors.addressLine1}</p>}
+                <label htmlFor="property-address1" className="crm-field-label">Address Line 1 *</label>
+                <input id="property-address1" aria-required="true" aria-invalid={!!errors.addressLine1} aria-describedby={errors.addressLine1 ? 'property-address1-error' : undefined} type="text" value={form.addressLine1} onChange={set('addressLine1')} placeholder="e.g. 123 Maple Street"
+                  className="crm-field" />
+                {errors.addressLine1 && <p id="property-address1-error" className="text-xs text-destructive mt-1">{errors.addressLine1}</p>}
               </div>
               <div>
-                <label className="block text-xs font-medium text-[#475569] mb-1.5">Address Line 2 <span className="text-[#94a3b8] font-normal">(optional)</span></label>
-                <input type="text" value={form.addressLine2} onChange={set('addressLine2')} placeholder="e.g. Unit 4B"
-                  className="w-full px-3 py-2 text-sm border border-[#e5e7eb] rounded-lg outline-none focus:border-[#4f46e5] transition-colors" />
+                <label htmlFor="property-address2" className="crm-field-label">Address Line 2 (optional)</label>
+                <input id="property-address2" type="text" value={form.addressLine2} onChange={set('addressLine2')} placeholder="e.g. Unit 4B"
+                  className="crm-field" />
               </div>
               <div>
-                <label className="block text-xs font-medium text-[#475569] mb-1.5">Status <span className="text-red-500">*</span></label>
-                <select value={form.status} onChange={set('status')}
-                  className={`w-full px-3 py-2 text-sm border rounded-lg outline-none transition-colors bg-white ${errors.status ? 'border-red-400 bg-red-50' : 'border-[#e5e7eb] focus:border-[#4f46e5]'}`}>
+                <label htmlFor="property-status" className="crm-field-label">Status *</label>
+                <select id="property-status" aria-required="true" aria-invalid={!!errors.status} aria-describedby={errors.status ? 'property-status-error' : undefined} value={form.status} onChange={set('status')}
+                  className="crm-field">
                   <option value="">Select a status...</option>
                   <option value="draft">Draft — Not yet listed, still being prepared</option>
                   <option value="open">Open — Actively listed and available</option>
                   <option value="archived">Archived — No longer active</option>
                 </select>
-                {errors.status && <p className="text-xs text-red-600 mt-1">{errors.status}</p>}
+                {errors.status && <p id="property-status-error" className="text-xs text-destructive mt-1">{errors.status}</p>}
               </div>
             </div>
           </div>
@@ -369,42 +320,42 @@ function PropertyModal({
           {/* Section 2 */}
           <div>
             <SectionHeader number={2} title="Property Details" subtitle="Numeric details about the property." />
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
-                <label className="block text-xs font-medium text-[#475569] mb-1.5">Price <span className="text-[#94a3b8] font-normal">(optional)</span></label>
+                <label htmlFor="property-price" className="crm-field-label">Price (optional)</label>
                 <div className="relative">
-                  <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-[#94a3b8]" />
-                  <input type="number" min="0" step="1000" value={form.price} onChange={set('price')} placeholder="e.g. 450000"
-                    className={`w-full pl-8 pr-3 py-2 text-sm border rounded-lg outline-none transition-colors ${errors.price ? 'border-red-400 bg-red-50' : 'border-[#e5e7eb] focus:border-[#4f46e5]'}`} />
+                  <DollarSign aria-hidden="true" className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
+                  <input id="property-price" aria-invalid={!!errors.price} aria-describedby={errors.price ? 'property-price-error' : undefined} type="number" min="0" step="1000" value={form.price} onChange={set('price')} placeholder="e.g. 450000"
+                    className="crm-field pl-8" />
                 </div>
-                {errors.price && <p className="text-xs text-red-600 mt-1">{errors.price}</p>}
+                {errors.price && <p id="property-price-error" className="text-xs text-destructive mt-1">{errors.price}</p>}
               </div>
               <div>
-                <label className="block text-xs font-medium text-[#475569] mb-1.5">Square Feet <span className="text-[#94a3b8] font-normal">(optional)</span></label>
+                <label htmlFor="property-sqft" className="crm-field-label">Square Feet (optional)</label>
                 <div className="relative">
-                  <Square className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-[#94a3b8]" />
-                  <input type="number" min="0" step="1" value={form.sqft} onChange={set('sqft')} placeholder="e.g. 2100"
-                    className={`w-full pl-8 pr-3 py-2 text-sm border rounded-lg outline-none transition-colors ${errors.sqft ? 'border-red-400 bg-red-50' : 'border-[#e5e7eb] focus:border-[#4f46e5]'}`} />
+                  <Square aria-hidden="true" className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
+                  <input id="property-sqft" aria-invalid={!!errors.sqft} aria-describedby={errors.sqft ? 'property-sqft-error' : undefined} type="number" min="0" step="1" value={form.sqft} onChange={set('sqft')} placeholder="e.g. 2100"
+                    className="crm-field pl-8" />
                 </div>
-                {errors.sqft && <p className="text-xs text-red-600 mt-1">{errors.sqft}</p>}
+                {errors.sqft && <p id="property-sqft-error" className="text-xs text-destructive mt-1">{errors.sqft}</p>}
               </div>
               <div>
-                <label className="block text-xs font-medium text-[#475569] mb-1.5">Bedrooms <span className="text-[#94a3b8] font-normal">(optional)</span></label>
+                <label htmlFor="property-bedrooms" className="crm-field-label">Bedrooms (optional)</label>
                 <div className="relative">
-                  <Bed className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-[#94a3b8]" />
-                  <input type="number" min="0" step="1" value={form.bedrooms} onChange={set('bedrooms')} placeholder="e.g. 3"
-                    className={`w-full pl-8 pr-3 py-2 text-sm border rounded-lg outline-none transition-colors ${errors.bedrooms ? 'border-red-400 bg-red-50' : 'border-[#e5e7eb] focus:border-[#4f46e5]'}`} />
+                  <Bed aria-hidden="true" className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
+                  <input id="property-bedrooms" aria-invalid={!!errors.bedrooms} aria-describedby={errors.bedrooms ? 'property-bedrooms-error' : undefined} type="number" min="0" step="1" value={form.bedrooms} onChange={set('bedrooms')} placeholder="e.g. 3"
+                    className="crm-field pl-8" />
                 </div>
-                {errors.bedrooms && <p className="text-xs text-red-600 mt-1">{errors.bedrooms}</p>}
+                {errors.bedrooms && <p id="property-bedrooms-error" className="text-xs text-destructive mt-1">{errors.bedrooms}</p>}
               </div>
               <div>
-                <label className="block text-xs font-medium text-[#475569] mb-1.5">Bathrooms <span className="text-[#94a3b8] font-normal">(optional)</span></label>
+                <label htmlFor="property-bathrooms" className="crm-field-label">Bathrooms (optional)</label>
                 <div className="relative">
-                  <Bath className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-[#94a3b8]" />
-                  <input type="number" min="0" step="0.5" value={form.bathrooms} onChange={set('bathrooms')} placeholder="e.g. 2.5"
-                    className={`w-full pl-8 pr-3 py-2 text-sm border rounded-lg outline-none transition-colors ${errors.bathrooms ? 'border-red-400 bg-red-50' : 'border-[#e5e7eb] focus:border-[#4f46e5]'}`} />
+                  <Bath aria-hidden="true" className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
+                  <input id="property-bathrooms" aria-invalid={!!errors.bathrooms} aria-describedby={errors.bathrooms ? 'property-bathrooms-error' : undefined} type="number" min="0" step="0.5" value={form.bathrooms} onChange={set('bathrooms')} placeholder="e.g. 2.5"
+                    className="crm-field pl-8" />
                 </div>
-                {errors.bathrooms && <p className="text-xs text-red-600 mt-1">{errors.bathrooms}</p>}
+                {errors.bathrooms && <p id="property-bathrooms-error" className="text-xs text-destructive mt-1">{errors.bathrooms}</p>}
               </div>
             </div>
           </div>
@@ -413,18 +364,18 @@ function PropertyModal({
           <div>
             <SectionHeader number={3} title="Property Description" subtitle="This is the most important field. The AI will use this to answer lead questions." />
             <div>
-              <label className="block text-xs font-medium text-[#475569] mb-1.5">Description <span className="text-red-500">*</span></label>
-              <div className="bg-amber-50 border border-amber-200 rounded-lg px-3 py-2.5 mb-2 flex items-start gap-2">
-                <Info className="w-3.5 h-3.5 text-amber-600 flex-shrink-0 mt-0.5" />
-                <p className="text-xs text-amber-800">
+              <label htmlFor="property-description" className="crm-field-label">Description *</label>
+              <div className="bg-caution-subtle border border-border rounded-md px-3 py-2.5 mb-2 flex items-start gap-2">
+                <Info aria-hidden="true" className="w-3.5 h-3.5 text-caution flex-shrink-0 mt-0.5" />
+                <p className="text-sm text-caution">
                   Be as detailed as possible. Include property features, amenities, selling points, neighborhood information, special conditions, pricing details, and anything that may help the AI understand and discuss this property with leads.
                 </p>
               </div>
-              <textarea value={form.description} onChange={set('description')} rows={8}
+              <textarea id="property-description" aria-required="true" aria-invalid={!!errors.description} aria-describedby={errors.description ? 'property-description-error' : undefined} value={form.description} onChange={set('description')} rows={8}
                 placeholder="Example: 3-bedroom, 2.5-bath colonial in the heart of Westfield..."
-                className={`w-full px-3 py-2 text-sm border rounded-lg outline-none transition-colors resize-y leading-relaxed ${errors.description ? 'border-red-400 bg-red-50' : 'border-[#e5e7eb] focus:border-[#4f46e5]'}`}
+                className="crm-field resize-y leading-relaxed"
                 style={{ minHeight: '200px' }} />
-              {errors.description && <p className="text-xs text-red-600 mt-1">{errors.description}</p>}
+              {errors.description && <p id="property-description-error" className="text-xs text-destructive mt-1">{errors.description}</p>}
             </div>
           </div>
 
@@ -433,9 +384,9 @@ function PropertyModal({
             <SectionHeader number={4} title="Property Source" subtitle="Where did this listing originate?" />
             <div className="space-y-4">
               <div>
-                <label className="block text-xs font-medium text-[#475569] mb-1.5">Source <span className="text-[#94a3b8] font-normal">(optional)</span></label>
-                <select value={form.source} onChange={set('source')}
-                  className="w-full px-3 py-2 text-sm border border-[#e5e7eb] rounded-lg outline-none focus:border-[#4f46e5] transition-colors bg-white">
+                <label htmlFor="property-source" className="crm-field-label">Source (optional)</label>
+                <select id="property-source" value={form.source} onChange={set('source')}
+                  className="crm-field">
                   <option value="">Select a source...</option>
                   <option value="zillow">Zillow</option>
                   <option value="realtor">Realtor.com</option>
@@ -444,24 +395,24 @@ function PropertyModal({
                 </select>
               </div>
               <div>
-                <label className="block text-xs font-medium text-[#475569] mb-1.5">External ID <span className="text-[#94a3b8] font-normal">(optional)</span></label>
-                <input type="text" value={form.externalId} onChange={set('externalId')} placeholder="e.g. 12345678_zpid"
-                  className="w-full px-3 py-2 text-sm border border-[#e5e7eb] rounded-lg outline-none focus:border-[#4f46e5] transition-colors" />
-                <p className="text-xs text-[#94a3b8] mt-1">Optional. Zillow Listing ID, Realtor Listing ID, MLS ID, or another external identifier.</p>
+                <label htmlFor="property-external-id" className="crm-field-label">External ID (optional)</label>
+                <input id="property-external-id" type="text" value={form.externalId} onChange={set('externalId')} placeholder="e.g. 12345678_zpid"
+                  className="crm-field" />
+                <p className="text-xs text-muted-foreground mt-1">Optional. Zillow Listing ID, Realtor Listing ID, MLS ID, or another external identifier.</p>
               </div>
             </div>
           </div>
         </div>
 
         {/* Footer */}
-        <div className="flex items-center justify-end gap-3 px-6 py-4 border-t border-[#e5e7eb] bg-[#f9fafb] rounded-b-2xl">
+        <div className="flex flex-wrap items-center justify-end gap-3 px-6 py-4 border-t border-border bg-background">
           <Button variant="secondary" onClick={onClose} disabled={submitting}>Cancel</Button>
           <Button variant="primary" onClick={handleSubmit} loading={submitting} icon={<Plus className="w-4 h-4" />}>
             {submitting ? (mode === 'add' ? 'Creating...' : 'Saving...') : (mode === 'add' ? 'Create Property' : 'Save Changes')}
           </Button>
         </div>
       </div>
-    </div>
+    </ModalFrame>
   )
 }
 
@@ -598,18 +549,18 @@ export function PropertiesPage() {
       )}
 
       {toast && (
-        <div className="fixed bottom-6 right-6 z-50 bg-[#0f172a] text-white text-sm font-medium px-4 py-3 rounded-xl shadow-lg flex items-center gap-2">
+        <div className="fixed bottom-6 right-4 left-4 sm:left-auto z-50 bg-foreground text-primary-foreground text-sm font-medium px-4 py-3 rounded-lg shadow-lg flex items-center gap-2">
           <span className="text-emerald-400">✓</span>
           {toast}
         </div>
       )}
 
-      <div className="space-y-5">
+      <div className="crm-workspace space-y-5">
         {/* Header */}
-        <div className="flex items-center justify-between">
+        <div className="crm-page-header">
           <div>
-            <h2 className="text-lg font-semibold text-[#0f172a]">Properties</h2>
-            <p className="text-sm text-[#94a3b8] mt-0.5">{filtered.length} of {properties.length} properties</p>
+            <h1 className="crm-page-title">Properties</h1>
+            <p className="text-sm text-muted-foreground mt-1">{filtered.length} of {properties.length} properties</p>
           </div>
           <Button variant="primary" icon={<Plus className="w-4 h-4" />} onClick={openAdd}>
             Add Property
@@ -617,20 +568,21 @@ export function PropertiesPage() {
         </div>
 
         {/* Filters */}
-        <div className="flex flex-col sm:flex-row gap-3">
-          <div className="flex-1">
-            <Input icon={Search} placeholder="Search by address, status, or source..." value={searchRaw} onChange={(e) => setSearchRaw(e.target.value)} />
+        <div className="flex flex-col xl:flex-row xl:items-end gap-3">
+          <div className="flex-1 min-w-0">
+            <label htmlFor="property-search" className="crm-field-label">Search properties</label>
+            <Input id="property-search" icon={Search} placeholder="Address, status, or source" value={searchRaw} onChange={(e) => setSearchRaw(e.target.value)} />
           </div>
           <div className="flex items-center gap-2 flex-wrap">
             {['all', 'open', 'draft', 'archived'].map((s) => (
-              <button key={s} onClick={() => setStatusFilter(s)}
-                className={`px-3 py-2 rounded-lg text-xs font-medium transition-colors ${statusFilter === s ? 'bg-[#4f46e5] text-white' : 'bg-white border border-[#e5e7eb] text-[#475569] hover:bg-[#f9fafb]'}`}>
+              <button key={s} aria-pressed={statusFilter === s} onClick={() => setStatusFilter(s)}
+                className={`px-3 py-2 rounded-md text-xs font-medium transition-colors ${statusFilter === s ? 'bg-primary text-primary-foreground' : 'bg-card border border-border text-muted-foreground hover:bg-accent'}`}>
                 {s === 'all' ? 'All' : s.charAt(0).toUpperCase() + s.slice(1)}
               </button>
             ))}
-            <div className="flex items-center gap-1 ml-2 bg-[#f9fafb] border border-[#e5e7eb] rounded-lg p-1">
-              <button onClick={() => setViewMode('grid')} className={`px-2 py-1 rounded text-xs font-medium transition-colors ${viewMode === 'grid' ? 'bg-white text-[#0f172a] shadow-sm' : 'text-[#94a3b8]'}`}>Grid</button>
-              <button onClick={() => setViewMode('table')} className={`px-2 py-1 rounded text-xs font-medium transition-colors ${viewMode === 'table' ? 'bg-white text-[#0f172a] shadow-sm' : 'text-[#94a3b8]'}`}>Table</button>
+            <div role="group" aria-label="Property view" className="flex items-center gap-1 bg-muted border border-border rounded-md p-1">
+              <button aria-pressed={viewMode === 'grid'} onClick={() => setViewMode('grid')} className={`px-3 py-1 rounded text-xs font-medium ${viewMode === 'grid' ? 'bg-card text-primary shadow-sm' : 'text-muted-foreground'}`}>Grid</button>
+              <button aria-pressed={viewMode === 'table'} onClick={() => setViewMode('table')} className={`px-3 py-1 rounded text-xs font-medium ${viewMode === 'table' ? 'bg-card text-primary shadow-sm' : 'text-muted-foreground'}`}>Table</button>
             </div>
           </div>
         </div>
@@ -638,10 +590,10 @@ export function PropertiesPage() {
         {/* Sort bar (grid mode) */}
         {viewMode === 'grid' && (
           <div className="flex items-center gap-2 flex-wrap">
-            <span className="text-xs text-[#94a3b8] font-medium">Sort by:</span>
+            <span className="text-xs text-muted-foreground font-medium">Sort by:</span>
             {(['address', 'price', 'bedrooms', 'status'] as PropertySortKey[]).map((key) => (
-              <button key={key} onClick={() => handleSort(key)}
-                className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-medium transition-colors border ${sort.key === key ? 'bg-[#eef2ff] text-[#4f46e5] border-[#c7d2fe]' : 'bg-white text-[#475569] border-[#e5e7eb] hover:bg-[#f9fafb]'}`}>
+              <button key={key} aria-pressed={sort.key === key} aria-label={`${key}: ${sort.key === key ? `${sort.direction}ending; reverse sort` : 'sort ascending'}`} onClick={() => handleSort(key)}
+                className={`flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-medium transition-colors border ${sort.key === key ? 'bg-accent text-primary border-primary' : 'bg-card text-muted-foreground border-border hover:bg-background'}`}>
                 {key.charAt(0).toUpperCase() + key.slice(1)}
                 <span className="text-[10px]">{getSortIndicator(sort, key)}</span>
               </button>
@@ -666,34 +618,32 @@ export function PropertiesPage() {
                 const sqftVal      = property.sqft      ?? 0
                 const priceVal     = property.price     ?? 0
                 return (
-                  <Card key={property.id} className="overflow-hidden">
-                    <div className="h-40 bg-[#f1f5f9] flex items-center justify-center border-b border-[#e5e7eb]">
-                      <img
-                        src={`https://placehold.co/400x160/eef2ff/4f46e5?text=${encodeURIComponent(bedroomsVal + 'BR+Property')}&font=lato`}
-                        alt="Property" className="w-full h-full object-cover"
-                      />
+                  <Card key={property.id} className="min-w-0">
+                    <div className="crm-property-frame">
+                      <span aria-hidden="true" className="text-xs uppercase tracking-widest">Property record</span>
+                      <p>No property photo</p>
                     </div>
                     <CardContent className="p-4">
-                      <div className="flex items-start justify-between gap-2 mb-2">
-                        <p className="text-sm font-semibold text-[#0f172a] leading-snug line-clamp-2 flex-1">
+                      <div className="flex flex-wrap items-start justify-between gap-2 mb-2">
+                        <p className="text-base font-semibold text-foreground leading-snug min-w-0 flex-1">
                           <HighlightedText text={address} query={search} />
                         </p>
-                        <div className="flex items-center gap-1 flex-shrink-0">
+                        <div className="flex flex-wrap items-center gap-1">
                           <PropertyStatusBadge status={property.status} />
                           <PropertyMenu onEdit={() => openEdit(property)} onDelete={() => setDeleteTarget(property)} />
                         </div>
                       </div>
                       {Number(priceVal) > 0 && (
-                        <p className="text-lg font-semibold text-[#4f46e5] mb-3">{formatCurrency(Number(priceVal))}</p>
+                        <p className="crm-numeric text-xl font-semibold text-primary mb-3">{formatCurrency(Number(priceVal))}</p>
                       )}
-                      <div className="flex items-center gap-3 text-xs text-[#475569]">
-                        {Number(bedroomsVal)  > 0 && <span className="flex items-center gap-1"><Bed  className="w-3.5 h-3.5 text-[#94a3b8]" />{bedroomsVal} bd</span>}
-                        {Number(bathroomsVal) > 0 && <span className="flex items-center gap-1"><Bath className="w-3.5 h-3.5 text-[#94a3b8]" />{bathroomsVal} ba</span>}
-                        {Number(sqftVal)      > 0 && <span className="flex items-center gap-1"><Square className="w-3.5 h-3.5 text-[#94a3b8]" />{Number(sqftVal).toLocaleString()} sqft</span>}
+                      <div className="flex flex-wrap items-center gap-3 text-sm text-muted-foreground">
+                        {Number(bedroomsVal)  > 0 && <span className="flex items-center gap-1"><Bed aria-hidden="true" className="w-3.5 h-3.5" />{bedroomsVal} bd</span>}
+                        {Number(bathroomsVal) > 0 && <span className="flex items-center gap-1"><Bath aria-hidden="true" className="w-3.5 h-3.5" />{bathroomsVal} ba</span>}
+                        {Number(sqftVal)      > 0 && <span className="flex items-center gap-1"><Square aria-hidden="true" className="w-3.5 h-3.5" />{Number(sqftVal).toLocaleString()} sqft</span>}
                       </div>
-                      <div className="mt-3 pt-3 border-t border-[#f1f5f9] flex items-center justify-between">
-                        <span className="text-xs text-[#94a3b8]">{property.source}</span>
-                        <span className="text-xs text-[#94a3b8]">{formatDate(property.createdAt)}</span>
+                      <div className="mt-3 pt-3 border-t border-border flex flex-wrap gap-2 items-center justify-between">
+                        <span className="text-xs text-muted-foreground">{property.source}</span>
+                        <span className="crm-numeric text-xs text-muted-foreground">{formatDate(property.createdAt)}</span>
                       </div>
                     </CardContent>
                   </Card>
@@ -705,9 +655,9 @@ export function PropertiesPage() {
 
         {/* Table view */}
         {viewMode === 'table' && (
-          <Card>
-            <div className="border-t border-[#e5e7eb]">
-              <div className="hidden sm:grid grid-cols-[3fr_1fr_1fr_1fr_1fr_1fr_44px] gap-4 px-5 py-2.5 bg-[#f9fafb] border-b border-[#e5e7eb]">
+          <Card className="min-w-0">
+            <div role="region" aria-label="Property comparison table" tabIndex={0} className="crm-property-table overflow-x-auto">
+              <div className="crm-property-columns gap-4 px-5 bg-background border-b border-border">
                 <SortableHeader label="Address"  sortKey="address"   sort={sort} onSort={handleSort} />
                 <SortableHeader label="Price"    sortKey="price"     sort={sort} onSort={handleSort} />
                 <SortableHeader label="Beds"     sortKey="bedrooms"  sort={sort} onSort={handleSort} />
@@ -719,27 +669,27 @@ export function PropertiesPage() {
 
               {propertiesLoading ? (
                 <div className="p-5 space-y-3">
-                  {Array.from({ length: 5 }).map((_, i) => <div key={i} className="h-10 bg-[#f9fafb] rounded animate-pulse" />)}
+                  {Array.from({ length: 5 }).map((_, i) => <div key={i} aria-hidden="true" className="h-10 bg-background rounded animate-pulse" />)}
                 </div>
               ) : filtered.length === 0 ? (
                 <EmptyState icon={Building2} title="No properties found" description="Try adjusting your search or filter." />
               ) : (
-                <div className="divide-y divide-[#e5e7eb]">
+                <div className="divide-y divide-border">
                   {filtered.map((property) => {
                     const address = property.address ?? property.addressLine1 ?? ''
                     return (
-                      <div key={property.id} className="grid grid-cols-1 sm:grid-cols-[3fr_1fr_1fr_1fr_1fr_1fr_44px] gap-4 px-5 py-3.5 hover:bg-[#f9fafb] transition-colors items-center">
+                      <div key={property.id} className="crm-property-columns gap-4 px-5 py-3 hover:bg-background transition-colors items-center">
                         <div className="min-w-0">
-                          <p className="text-sm font-medium text-[#0f172a] truncate">
+                          <p className="text-sm font-semibold text-foreground">
                             <HighlightedText text={address} query={search} />
                           </p>
-                          <p className="text-xs text-[#94a3b8]">{property.source}</p>
+                          <p className="text-xs text-muted-foreground">{property.source}</p>
                         </div>
-                        <span className="text-sm text-[#0f172a] font-medium">{property.price ? formatCurrency(Number(property.price)) : '—'}</span>
-                        <span className="text-sm text-[#475569]">{property.bedrooms  != null ? `${property.bedrooms} bd`  : '—'}</span>
-                        <span className="text-sm text-[#475569]">{property.bathrooms != null ? `${property.bathrooms} ba` : '—'}</span>
+                        <span className="text-sm text-foreground font-medium">{property.price ? formatCurrency(Number(property.price)) : '—'}</span>
+                        <span className="text-sm text-muted-foreground">{property.bedrooms  != null ? `${property.bedrooms} bd`  : '—'}</span>
+                        <span className="text-sm text-muted-foreground">{property.bathrooms != null ? `${property.bathrooms} ba` : '—'}</span>
                         <PropertyStatusBadge status={property.status} />
-                        <span className="text-xs text-[#94a3b8]">{formatDate(property.createdAt)}</span>
+                        <span className="text-xs text-muted-foreground">{formatDate(property.createdAt)}</span>
                         <PropertyMenu onEdit={() => openEdit(property)} onDelete={() => setDeleteTarget(property)} />
                       </div>
                     )

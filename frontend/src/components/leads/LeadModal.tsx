@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { X, UserPlus, Sparkles, MessageSquare, BellOff, Info } from 'lucide-react'
 import { Button } from '../ui/Button'
-import { SectionHeader } from './LeadFormShared'
+import { ModalFrame, SectionHeader } from './LeadFormShared'
 import { BACKEND_URL } from '../../consts'
 import type { Lead, MessageMode, ReferLeadFormData, ReferLeadErrors } from './types'
 import { EMPTY_REFER_FORM, leadToForm } from './types'
@@ -131,49 +131,49 @@ export function LeadModal({
   const firstName = form.name.split(' ')[0] || 'them'
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-xl max-h-[90vh] flex flex-col">
+    <ModalFrame titleId="lead-form-title" onClose={onClose} busy={submitting}>
+      <div className="w-full max-w-xl flex flex-col">
         {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-[#e5e7eb]">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-border">
           <div>
-            <h3 className="text-base font-semibold text-[#0f172a]">{mode === 'add' ? 'Refer a Lead' : 'Edit Lead'}</h3>
-            <p className="text-xs text-[#94a3b8] mt-0.5">
+            <h3 id="lead-form-title" className="text-base font-semibold text-foreground">{mode === 'add' ? 'Refer a Lead' : 'Edit Lead'}</h3>
+            <p className="text-sm text-muted-foreground mt-1">
               {mode === 'add'
                 ? 'Add a referred lead to your CRM. The more detail you provide, the better the AI can engage them.'
                 : "Update the lead's contact information and context."}
             </p>
           </div>
-          <button onClick={onClose} className="text-[#94a3b8] hover:text-[#475569] transition-colors ml-4 flex-shrink-0">
+          <button onClick={onClose} disabled={submitting} aria-label="Close lead dialog" className="text-muted-foreground hover:text-foreground transition-colors ml-4 flex-shrink-0 min-w-11 flex items-center justify-center">
             <X className="w-5 h-5" />
           </button>
         </div>
 
         {/* Body */}
-        <div className="flex-1 overflow-y-auto px-6 py-5 space-y-8">
-          {errors.general && <div className="bg-red-50 border border-red-200 rounded-lg px-4 py-3 text-sm text-red-700">{errors.general}</div>}
+        <div className="min-h-0 px-6 py-5 space-y-6">
+          {errors.general && <div role="alert" className="bg-destructive-subtle border border-destructive rounded-lg px-4 py-3 text-sm text-destructive">{errors.general}</div>}
 
           {/* Section 1: Contact Information */}
           <div>
             <SectionHeader number={1} title="Contact Information" subtitle="Who is this lead? Provide as much contact detail as possible." />
             <div className="space-y-4">
               <div>
-                <label className="block text-xs font-medium text-[#475569] mb-1.5">Full Name <span className="text-red-500">*</span></label>
-                <input type="text" value={form.name} onChange={set('name')} placeholder="e.g. Jane Smith"
-                  className={`w-full px-3 py-2 text-sm border rounded-lg outline-none transition-colors ${errors.name ? 'border-red-400 bg-red-50' : 'border-[#e5e7eb] focus:border-[#4f46e5]'}`} />
-                {errors.name && <p className="text-xs text-red-600 mt-1">{errors.name}</p>}
+                <label htmlFor="lead-name" className="crm-field-label">Full Name <span>*</span></label>
+                <input id="lead-name" aria-required="true" aria-invalid={!!errors.name} aria-describedby={errors.name ? 'lead-name-error' : undefined} type="text" value={form.name} onChange={set('name')} placeholder="e.g. Jane Smith"
+                  className="crm-field" />
+                {errors.name && <p id="lead-name-error" className="text-xs text-destructive mt-1">{errors.name}</p>}
               </div>
-              {errors.contact && <div className="bg-red-50 border border-red-200 rounded-lg px-3 py-2 text-xs text-red-700">{errors.contact}</div>}
-              <div className="grid grid-cols-2 gap-4">
+              {errors.contact && <div id="lead-contact-error" className="bg-destructive-subtle border border-destructive rounded-lg px-3 py-2 text-xs text-destructive">{errors.contact}</div>}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-xs font-medium text-[#475569] mb-1.5">Email Address</label>
-                  <input type="email" value={form.email} onChange={set('email')} placeholder="jane@example.com"
-                    className={`w-full px-3 py-2 text-sm border rounded-lg outline-none transition-colors ${errors.email ? 'border-red-400 bg-red-50' : 'border-[#e5e7eb] focus:border-[#4f46e5]'}`} />
-                  {errors.email && <p className="text-xs text-red-600 mt-1">{errors.email}</p>}
+                  <label htmlFor="lead-email" className="crm-field-label">Email Address</label>
+                  <input id="lead-email" aria-invalid={!!(errors.email || errors.contact)} aria-describedby={[errors.email && 'lead-email-error', errors.contact && 'lead-contact-error'].filter(Boolean).join(' ') || undefined} type="email" value={form.email} onChange={set('email')} placeholder="jane@example.com"
+                    className="crm-field" />
+                  {errors.email && <p id="lead-email-error" className="text-xs text-destructive mt-1">{errors.email}</p>}
                 </div>
                 <div>
-                  <label className="block text-xs font-medium text-[#475569] mb-1.5">Phone Number</label>
-                  <input type="tel" value={form.phone} onChange={set('phone')} placeholder="(555) 000-0000"
-                    className="w-full px-3 py-2 text-sm border border-[#e5e7eb] rounded-lg outline-none focus:border-[#4f46e5] transition-colors" />
+                  <label htmlFor="lead-phone" className="crm-field-label">Phone Number</label>
+                  <input id="lead-phone" aria-invalid={!!errors.contact} aria-describedby={errors.contact ? 'lead-contact-error' : undefined} type="tel" value={form.phone} onChange={set('phone')} placeholder="(555) 000-0000"
+                    className="crm-field" />
                 </div>
               </div>
             </div>
@@ -184,8 +184,8 @@ export function LeadModal({
             <SectionHeader number={2} title="Lead Context" subtitle="Where did this lead come from, and are they interested in a specific property?" />
             <div className="space-y-4">
               <div>
-                <label className="block text-xs font-medium text-[#475569] mb-1.5">Lead Source</label>
-                <select value={form.source} onChange={set('source')} className="w-full px-3 py-2 text-sm border border-[#e5e7eb] rounded-lg outline-none focus:border-[#4f46e5] transition-colors bg-white">
+                <label htmlFor="lead-source" className="crm-field-label">Lead Source</label>
+                <select id="lead-source" value={form.source} onChange={set('source')} className="w-full px-3 py-2 text-sm border border-input rounded-md bg-card">
                   <option value="referral">Referral — Personally referred by someone</option>
                   <option value="zillow">Zillow</option>
                   <option value="realtor">Realtor.com</option>
@@ -194,23 +194,23 @@ export function LeadModal({
               </div>
               {form.source === 'referral' && (
                 <div>
-                  <label className="block text-xs font-medium text-[#475569] mb-1.5">Referrer <span className="text-red-500">*</span></label>
-                  <input type="text" value={form.sourceId} onChange={set('sourceId')} placeholder="e.g. John Smith"
-                    className={`w-full px-3 py-2 text-sm border rounded-lg outline-none transition-colors ${errors.sourceId ? 'border-red-400 bg-red-50' : 'border-[#e5e7eb] focus:border-[#4f46e5]'}`} />
-                  {errors.sourceId && <p className="text-xs text-red-600 mt-1">{errors.sourceId}</p>}
+                  <label htmlFor="lead-referrer" className="crm-field-label">Referrer <span>*</span></label>
+                  <input id="lead-referrer" aria-required="true" aria-invalid={!!errors.sourceId} aria-describedby={errors.sourceId ? 'lead-referrer-error' : undefined} type="text" value={form.sourceId} onChange={set('sourceId')} placeholder="e.g. John Smith"
+                    className="crm-field" />
+                  {errors.sourceId && <p id="lead-referrer-error" className="text-xs text-destructive mt-1">{errors.sourceId}</p>}
                 </div>
               )}
               {form.source !== 'referral' && (
                 <div>
-                  <label className="block text-xs font-medium text-[#475569] mb-1.5">Source ID <span className="text-[#94a3b8] font-normal">(optional)</span></label>
-                  <input type="text" value={form.sourceId} onChange={set('sourceId')} placeholder="e.g. Zillow inquiry ID, MLS ID"
-                    className="w-full px-3 py-2 text-sm border border-[#e5e7eb] rounded-lg outline-none focus:border-[#4f46e5] transition-colors" />
+                  <label htmlFor="lead-source-id" className="crm-field-label">Source ID (optional)</label>
+                  <input id="lead-source-id" type="text" value={form.sourceId} onChange={set('sourceId')} placeholder="e.g. Zillow inquiry ID, MLS ID"
+                    className="crm-field" />
                 </div>
               )}
               {properties.length > 0 && (
                 <div>
-                  <label className="block text-xs font-medium text-[#475569] mb-1.5">Interested Property <span className="text-[#94a3b8] font-normal">(optional)</span></label>
-                  <select value={form.propertyId} onChange={set('propertyId')} className="w-full px-3 py-2 text-sm border border-[#e5e7eb] rounded-lg outline-none focus:border-[#4f46e5] transition-colors bg-white">
+                  <label htmlFor="lead-property" className="crm-field-label">Interested Property (optional)</label>
+                  <select id="lead-property" value={form.propertyId} onChange={set('propertyId')} className="w-full px-3 py-2 text-sm border border-input rounded-md bg-card">
                     <option value="">No specific property</option>
                     {properties.map((p) => (
                       <option key={p.id} value={p.id}>{p.address ?? p.addressLine1 ?? `Property #${p.id}`}</option>
@@ -225,13 +225,14 @@ export function LeadModal({
           {mode === 'add' && (
             <div>
               <SectionHeader number={3} title="Initial Notes" subtitle="Any context that will help the AI engage this lead effectively." />
-              <div className="bg-amber-50 border border-amber-200 rounded-lg px-3 py-2.5 mb-2 flex items-start gap-2">
-                <Info className="w-3.5 h-3.5 text-amber-600 flex-shrink-0 mt-0.5" />
-                <p className="text-xs text-amber-800">Be as detailed as possible. Include what the lead is looking for, their timeline, budget range, preferred neighborhoods, family situation, motivation for buying or selling, and any personal context that may help build rapport.</p>
+              <div className="bg-caution-subtle border border-border rounded-md px-3 py-2.5 mb-2 flex items-start gap-2">
+                <Info aria-hidden="true" className="w-3.5 h-3.5 text-caution flex-shrink-0 mt-0.5" />
+                <p className="text-sm text-caution">Be as detailed as possible. Include what the lead is looking for, their timeline, budget range, preferred neighborhoods, family situation, motivation for buying or selling, and any personal context that may help build rapport.</p>
               </div>
-              <textarea value={form.notes} onChange={set('notes')} rows={5}
+              <label htmlFor="lead-notes" className="crm-field-label">Initial notes</label>
+              <textarea id="lead-notes" value={form.notes} onChange={set('notes')} rows={5}
                 placeholder={`Example:\nJane was referred by Mike Johnson. She's looking to buy a 3-bedroom home in the Westfield area within the next 3 months. Budget is around $450k...`}
-                className="w-full px-3 py-2 text-sm border border-[#e5e7eb] rounded-lg outline-none focus:border-[#4f46e5] transition-colors resize-y leading-relaxed"
+                className="crm-field resize-y leading-relaxed"
                 style={{ minHeight: '120px' }} />
             </div>
           )}
@@ -241,10 +242,10 @@ export function LeadModal({
             <div>
               <SectionHeader number={4} title="Initial Outreach" subtitle="Choose how you'd like to reach out to this lead after they're added." />
 
-              <div className="flex gap-2 mb-4">
+              <div role="group" aria-label="Initial outreach" className="flex flex-wrap gap-2 mb-4">
                 {(['ai', 'manual', 'none'] as MessageMode[]).map((m) => (
-                  <button key={m} type="button" onClick={() => setMessageMode(m)}
-                    className={`flex-1 flex items-center justify-center gap-2 px-3 py-2.5 rounded-lg text-sm font-medium border transition-colors ${form.messageMode === m ? 'bg-[#4f46e5] text-white border-[#4f46e5]' : 'bg-white text-[#475569] border-[#e5e7eb] hover:bg-[#f9fafb]'}`}>
+                  <button key={m} type="button" aria-pressed={form.messageMode === m} onClick={() => setMessageMode(m)}
+                    className={`flex-1 flex items-center justify-center gap-2 px-3 py-2.5 rounded-md text-sm font-medium border transition-colors ${form.messageMode === m ? 'bg-primary text-primary-foreground border-primary' : 'bg-card text-muted-foreground border-input hover:bg-accent'}`}>
                     {m === 'ai'     && <><Sparkles className="w-4 h-4" />AI</>}
                     {m === 'manual' && <><MessageSquare className="w-4 h-4" />Manual</>}
                     {m === 'none'   && <><BellOff className="w-4 h-4" />None</>}
@@ -253,65 +254,66 @@ export function LeadModal({
               </div>
 
               {form.messageMode === 'ai' && (
-                <div className="bg-indigo-50 border border-indigo-200 rounded-lg px-4 py-3 flex items-start gap-2">
-                  <Sparkles className="w-3.5 h-3.5 text-indigo-500 flex-shrink-0 mt-0.5" />
-                  <p className="text-xs text-indigo-800">The AI will craft a personalized opening message based on the lead's name, source, notes, and any property they're interested in. It will be sent immediately via the best available channel and the AI will continue managing this lead's responses automatically.</p>
+                <div className="bg-accent border border-border rounded-md px-4 py-3 flex items-start gap-2">
+                  <Sparkles aria-hidden="true" className="w-3.5 h-3.5 text-primary flex-shrink-0 mt-0.5" />
+                  <p className="text-sm text-primary">The AI will craft a personalized opening message based on the lead's name, source, notes, and any property they're interested in. It will be sent immediately via the best available channel and the AI will continue managing this lead's responses automatically.</p>
                 </div>
               )}
 
               {form.messageMode === 'none' && (
-                <div className="bg-slate-50 border border-slate-200 rounded-lg px-4 py-3 flex items-start gap-2">
-                  <BellOff className="w-3.5 h-3.5 text-slate-500 flex-shrink-0 mt-0.5" />
-                  <p className="text-xs text-slate-700">No message will be sent. The lead will be created and the AI will remain active for future responses. You can message this lead manually at any time.</p>
+                <div className="bg-background border border-border rounded-md px-4 py-3 flex items-start gap-2">
+                  <BellOff aria-hidden="true" className="w-3.5 h-3.5 text-muted-foreground flex-shrink-0 mt-0.5" />
+                  <p className="text-sm text-muted-foreground">No message will be sent. The lead will be created and the AI will remain active for future responses. You can message this lead manually at any time.</p>
                 </div>
               )}
 
               {form.messageMode === 'manual' && (
                 <div className="space-y-5">
-                  <div className="bg-amber-50 border border-amber-200 rounded-lg px-3 py-2.5 flex items-start gap-2">
-                    <Info className="w-3.5 h-3.5 text-amber-600 flex-shrink-0 mt-0.5" />
-                    <p className="text-xs text-amber-800">Write your own opening message. Fill out whichever channel(s) apply — only messages for contact methods the lead has provided will be sent.</p>
+                  <div className="bg-caution-subtle border border-border rounded-md px-3 py-2.5 flex items-start gap-2">
+                    <Info aria-hidden="true" className="w-3.5 h-3.5 text-caution flex-shrink-0 mt-0.5" />
+                    <p className="text-sm text-caution">Write your own opening message. Fill out whichever channel(s) apply — only messages for contact methods the lead has provided will be sent.</p>
                   </div>
 
                   {hasPhone && (
-                    <div className="border border-[#e5e7eb] rounded-xl p-4 space-y-3">
-                      <div className="flex items-center gap-2">
-                        <div className="w-5 h-5 rounded-full bg-emerald-100 flex items-center justify-center flex-shrink-0">
-                          <MessageSquare className="w-3 h-3 text-emerald-600" />
+                    <div className="border border-border rounded-lg p-4 space-y-3">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <div aria-hidden="true" className="w-5 h-5 rounded-sm bg-accent flex items-center justify-center flex-shrink-0">
+                          <MessageSquare className="w-3 h-3 text-primary" />
                         </div>
-                        <span className="text-xs font-semibold text-[#0f172a] uppercase tracking-wide">SMS Message</span>
-                        <span className="text-xs text-[#94a3b8]">— sent to {form.phone}</span>
+                        <span className="text-xs font-semibold uppercase tracking-wide">SMS Message</span>
+                        <span className="text-xs text-muted-foreground">— sent to {form.phone}</span>
                       </div>
-                      <textarea value={form.smsMessage} onChange={set('smsMessage')} rows={4}
+                      <label htmlFor="lead-sms" className="crm-field-label">SMS message</label>
+                      <textarea id="lead-sms" aria-invalid={!!errors.smsMessage} aria-describedby={errors.smsMessage ? 'lead-sms-error' : undefined} value={form.smsMessage} onChange={set('smsMessage')} rows={4}
                         placeholder={`Example:\nHi ${firstName}! This is Sarah from Westfield Realty. Mike Johnson mentioned you're looking for a home in the area — I'd love to help! Do you have a few minutes to chat this week?`}
-                        className={`w-full px-3 py-2 text-sm border rounded-lg outline-none transition-colors resize-y leading-relaxed ${errors.smsMessage ? 'border-red-400 bg-red-50' : 'border-[#e5e7eb] focus:border-[#4f46e5]'}`}
+                        className="crm-field resize-y leading-relaxed"
                         style={{ minHeight: '100px' }} />
-                      {errors.smsMessage && <p className="text-xs text-red-600 mt-1">{errors.smsMessage}</p>}
+                      {errors.smsMessage && <p id="lead-sms-error" className="text-xs text-destructive mt-1">{errors.smsMessage}</p>}
                     </div>
                   )}
 
                   {hasEmail && (
-                    <div className="border border-[#e5e7eb] rounded-xl p-4 space-y-3">
-                      <div className="flex items-center gap-2">
-                        <div className="w-5 h-5 rounded-full bg-blue-100 flex items-center justify-center flex-shrink-0">
-                          <MessageSquare className="w-3 h-3 text-blue-600" />
+                    <div className="border border-border rounded-lg p-4 space-y-3">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <div aria-hidden="true" className="w-5 h-5 rounded-sm bg-accent flex items-center justify-center flex-shrink-0">
+                          <MessageSquare className="w-3 h-3 text-primary" />
                         </div>
-                        <span className="text-xs font-semibold text-[#0f172a] uppercase tracking-wide">Email Message</span>
-                        <span className="text-xs text-[#94a3b8]">— sent to {form.email}</span>
+                        <span className="text-xs font-semibold uppercase tracking-wide">Email Message</span>
+                        <span className="text-xs text-muted-foreground">— sent to {form.email}</span>
                       </div>
                       <div>
-                        <label className="block text-xs font-medium text-[#475569] mb-1.5">Subject <span className="text-red-500">*</span></label>
-                        <input type="text" value={form.emailSubject} onChange={set('emailSubject')} placeholder="e.g. Following up on your home search"
-                          className={`w-full px-3 py-2 text-sm border rounded-lg outline-none transition-colors ${errors.emailSubject ? 'border-red-400 bg-red-50' : 'border-[#e5e7eb] focus:border-[#4f46e5]'}`} />
-                        {errors.emailSubject && <p className="text-xs text-red-600 mt-1">{errors.emailSubject}</p>}
+                        <label htmlFor="lead-subject" className="crm-field-label">Subject *</label>
+                        <input id="lead-subject" aria-invalid={!!errors.emailSubject} aria-describedby={errors.emailSubject ? 'lead-subject-error' : undefined} type="text" value={form.emailSubject} onChange={set('emailSubject')} placeholder="e.g. Following up on your home search"
+                          className="crm-field" />
+                        {errors.emailSubject && <p id="lead-subject-error" className="text-xs text-destructive mt-1">{errors.emailSubject}</p>}
                       </div>
                       <div>
-                        <label className="block text-xs font-medium text-[#475569] mb-1.5">Body <span className="text-red-500">*</span></label>
-                        <textarea value={form.emailBody} onChange={set('emailBody')} rows={5}
+                        <label htmlFor="lead-body" className="crm-field-label">Email body *</label>
+                        <textarea id="lead-body" aria-invalid={!!errors.emailBody} aria-describedby={errors.emailBody ? 'lead-body-error' : undefined} value={form.emailBody} onChange={set('emailBody')} rows={5}
                           placeholder={`Example:\nHi ${firstName},\n\nMike Johnson mentioned you're looking for a home in the Westfield area. I'd love to connect!\n\nBest,\nSarah`}
-                          className={`w-full px-3 py-2 text-sm border rounded-lg outline-none transition-colors resize-y leading-relaxed ${errors.emailBody ? 'border-red-400 bg-red-50' : 'border-[#e5e7eb] focus:border-[#4f46e5]'}`}
+                          className="crm-field resize-y leading-relaxed"
                           style={{ minHeight: '140px' }} />
-                        {errors.emailBody && <p className="text-xs text-red-600 mt-1">{errors.emailBody}</p>}
+                        {errors.emailBody && <p id="lead-body-error" className="text-xs text-destructive mt-1">{errors.emailBody}</p>}
                       </div>
                     </div>
                   )}
@@ -322,13 +324,13 @@ export function LeadModal({
         </div>
 
         {/* Footer */}
-        <div className="flex items-center justify-end gap-3 px-6 py-4 border-t border-[#e5e7eb] bg-[#f9fafb] rounded-b-2xl">
+        <div className="flex flex-wrap items-center justify-end gap-3 px-6 py-4 border-t border-border bg-background">
           <Button variant="secondary" onClick={onClose} disabled={submitting}>Cancel</Button>
           <Button variant="primary" onClick={handleSubmit} loading={submitting} icon={<UserPlus className="w-4 h-4" />}>
             {submitting ? (mode === 'add' ? 'Adding Lead...' : 'Saving...') : (mode === 'add' ? 'Add Lead' : 'Save Changes')}
           </Button>
         </div>
       </div>
-    </div>
+    </ModalFrame>
   )
 }

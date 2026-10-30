@@ -104,11 +104,11 @@ export function LeadDetailPage() {
   }
 
   return (
-    <div className="space-y-5">
+    <div className="crm-workspace space-y-4">
       {/* Back */}
       <button
         onClick={() => navigate('/leads')}
-        className="flex items-center gap-1.5 text-sm text-[#475569] hover:text-[#0f172a] transition-colors"
+        className="flex items-center gap-1.5 text-sm text-primary hover:underline transition-colors"
       >
         <ArrowLeft className="w-4 h-4" />
         Back to Leads
@@ -128,32 +128,32 @@ export function LeadDetailPage() {
             </div>
           ) : (
             <div className="flex flex-col sm:flex-row sm:items-start gap-4">
-              <div className="w-14 h-14 rounded-full bg-[#eef2ff] flex items-center justify-center flex-shrink-0">
-                <span className="text-lg font-semibold text-[#4f46e5]">
+              <div aria-hidden="true" className="w-11 h-11 rounded-md bg-accent flex items-center justify-center flex-shrink-0">
+                <span className="text-base font-semibold text-primary">
                   {getInitials(lead.name)}
                 </span>
               </div>
               <div className="flex-1 min-w-0">
                 <div className="flex flex-wrap items-center gap-2 mb-1">
-                  <h2 className="text-lg font-semibold text-[#0f172a]">{lead.name}</h2>
+                  <h1 className="crm-page-title">{lead.name}</h1>
                   <LeadStatusBadge status={lead.status} />
                 </div>
-                <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm text-[#475569]">
+                <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm text-muted-foreground">
                   {lead.email && (
-                    <span className="flex items-center gap-1.5">
-                      <Mail className="w-3.5 h-3.5 text-[#94a3b8]" />
+                    <span className="inline-block min-w-0">
+                      <Mail aria-hidden="true" className="inline w-3.5 h-3.5 mr-1.5 text-muted-foreground" />
                       {lead.email}
                     </span>
                   )}
                   {lead.phone && (
-                    <span className="flex items-center gap-1.5">
-                      <Phone className="w-3.5 h-3.5 text-[#94a3b8]" />
+                    <span className="inline-block min-w-0">
+                      <Phone aria-hidden="true" className="inline w-3.5 h-3.5 mr-1.5 text-muted-foreground" />
                       {lead.phone}
                     </span>
                   )}
                   {lead.source && (
-                    <span className="flex items-center gap-1.5">
-                      <MapPin className="w-3.5 h-3.5 text-[#94a3b8]" />
+                    <span className="inline-block min-w-0">
+                      <MapPin aria-hidden="true" className="inline w-3.5 h-3.5 mr-1.5 text-muted-foreground" />
                       {lead.source}
                     </span>
                   )}
@@ -162,10 +162,10 @@ export function LeadDetailPage() {
               <div className="flex items-center gap-3 flex-shrink-0">
                 <div className="text-center">
                   <div className="flex items-center gap-1">
-                    <Star className="w-3.5 h-3.5 text-amber-500" />
-                    <span className="text-lg font-semibold text-[#0f172a]">{lead.score ?? 0}</span>
+                    <Star aria-hidden="true" className="w-3.5 h-3.5 text-caution" />
+                    <span className="text-lg font-semibold text-foreground">{lead.score ?? 0}</span>
                   </div>
-                  <p className="text-xs text-[#94a3b8]">Score</p>
+                  <p className="text-xs text-muted-foreground">Score</p>
                 </div>
               </div>
             </div>
@@ -174,24 +174,25 @@ export function LeadDetailPage() {
       </Card>
 
       {actionError && (
-        <div className="bg-red-50 border border-red-200 rounded-lg px-4 py-3 text-sm text-red-700">
+        <div id="lead-action-error" role="alert" className="bg-destructive-subtle border border-destructive rounded-lg px-4 py-3 text-sm text-destructive">
           {actionError}
         </div>
       )}
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
+      <div className="crm-inspect-grid">
         {/* Left: Messages + Notes */}
-        <div className="lg:col-span-2 space-y-4">
+        <div className="min-w-0 space-y-4">
           {/* Tabs */}
-          <div className="flex gap-1 bg-[#f9fafb] border border-[#e5e7eb] rounded-lg p-1 w-fit">
+          <div role="group" aria-label="Lead workspace" className="flex flex-wrap gap-1 bg-muted border border-border rounded-md p-1 w-fit">
             {(['messages', 'notes'] as const).map((tab) => (
               <button
                 key={tab}
+                aria-pressed={activeTab === tab}
                 onClick={() => setActiveTab(tab)}
                 className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-colors capitalize ${
                   activeTab === tab
-                    ? 'bg-white text-[#0f172a] shadow-card'
-                    : 'text-[#475569] hover:text-[#0f172a]'
+                    ? 'bg-card text-primary shadow-card'
+                    : 'text-muted-foreground hover:text-foreground'
                 }`}
               >
                 {tab === 'messages' ? <MessageSquare className="w-3.5 h-3.5" /> : <StickyNote className="w-3.5 h-3.5" />}
@@ -215,7 +216,7 @@ export function LeadDetailPage() {
                     ))}
                   </div>
                 ) : (lead.messages ?? []).length === 0 ? (
-                  <p className="text-sm text-[#94a3b8] text-center py-8">No messages yet</p>
+                  <p className="text-sm text-muted-foreground py-8">No messages yet</p>
                 ) : (
                   (lead.messages ?? []).map((msg) => (
                     <div
@@ -223,23 +224,23 @@ export function LeadDetailPage() {
                       className={`flex ${msg.direction === 'outbound' ? 'justify-end' : 'justify-start'}`}
                     >
                       <div
-                        className={`max-w-[75%] px-3.5 py-2.5 rounded-xl text-sm ${
+                        className={`min-w-0 max-w-[90%] sm:max-w-[80%] px-3.5 py-2.5 rounded-lg text-sm ${
                           msg.direction === 'outbound'
-                            ? 'bg-[#4f46e5] text-white'
-                            : 'bg-[#f9fafb] text-[#0f172a] border border-[#e5e7eb]'
+                            ? 'bg-primary text-primary-foreground'
+                            : 'bg-background text-foreground border border-border'
                         }`}
                       >
-                        <p className="flex items-center gap-1">
+                        <p className="whitespace-pre-wrap [overflow-wrap:anywhere]">
                           {msg.channel === 'sms' ? (
-                            <Phone className="w-3 h-3 text-current" />
+                            <Phone aria-hidden="true" className="inline mr-1 w-3 h-3 text-current" />
                           ) : (
-                            <Mail className="w-3 h-3 text-current" />
+                            <Mail aria-hidden="true" className="inline mr-1 w-3 h-3 text-current" />
                           )}
                           {msg.body}
                         </p>
                         <p
-                          className={`text-[10px] mt-1 ${
-                            msg.direction === 'outbound' ? 'text-indigo-200' : 'text-[#94a3b8]'
+                          className={`text-xs mt-1 ${
+                            msg.direction === 'outbound' ? 'text-primary-foreground' : 'text-muted-foreground'
                           }`}
                         >
                           {msg.sentAt && formatRelativeTime(msg.sentAt)}
@@ -249,17 +250,18 @@ export function LeadDetailPage() {
                   ))
                 )}
               </div>
-              <div className="px-5 pb-4 pt-2 border-t border-[#e5e7eb] space-y-2">
+              <div className="px-5 pb-4 pt-3 border-t border-border space-y-3">
                 {/* Channel picker — limited to channels the lead actually supports. */}
-                <div className="flex gap-2">
+                <div role="group" aria-label="Message channel" className="flex flex-wrap gap-2">
                   {lead?.phone && (
                     <button
                       type="button"
+                      aria-pressed={messageChannel === 'sms'}
                       onClick={() => setMessageChannel('sms')}
                       className={`flex items-center gap-1 px-3 py-1.5 rounded-md text-xs font-medium border transition-colors ${
                         messageChannel === 'sms'
-                          ? 'bg-[#4f46e5] text-white border-[#4f46e5]'
-                          : 'bg-white text-[#475569] border-[#e5e7eb] hover:bg-[#f9fafb]'
+                          ? 'bg-primary text-primary-foreground border-primary'
+                          : 'bg-card text-muted-foreground border-input hover:bg-accent'
                       }`}
                     >
                       <Phone className="w-3 h-3" /> SMS
@@ -268,11 +270,12 @@ export function LeadDetailPage() {
                   {lead?.email && (
                     <button
                       type="button"
+                      aria-pressed={messageChannel === 'email'}
                       onClick={() => setMessageChannel('email')}
                       className={`flex items-center gap-1 px-3 py-1.5 rounded-md text-xs font-medium border transition-colors ${
                         messageChannel === 'email'
-                          ? 'bg-[#4f46e5] text-white border-[#4f46e5]'
-                          : 'bg-white text-[#475569] border-[#e5e7eb] hover:bg-[#f9fafb]'
+                          ? 'bg-primary text-primary-foreground border-primary'
+                          : 'bg-card text-muted-foreground border-input hover:bg-accent'
                       }`}
                     >
                       <Mail className="w-3 h-3" /> Email
@@ -281,22 +284,29 @@ export function LeadDetailPage() {
                 </div>
 
                 {messageChannel === 'email' && (
+                  <label className="crm-field-label">
+                    Subject
                   <input
+                    aria-describedby={actionError ? 'lead-action-error' : undefined}
                     type="text"
                     placeholder="Subject"
                     value={messageSubject}
                     onChange={(e) => setMessageSubject(e.target.value)}
-                    className="w-full px-3 py-2 text-sm border border-[#e5e7eb] rounded-lg outline-none focus:border-[#4f46e5] transition-colors"
+                    className="mt-1 w-full px-3 py-2 text-sm border border-input bg-card text-foreground rounded-md"
                   />
+                  </label>
                 )}
 
-                <div className="flex gap-2">
+                <label htmlFor="detail-message" className="crm-field-label">Message</label>
+                <div className="flex flex-wrap sm:flex-nowrap gap-2">
                   <Textarea
+                    id="detail-message"
+                    aria-describedby={actionError ? 'lead-action-error' : undefined}
                     placeholder={`Type a ${messageChannel} message...`}
                     value={messageText}
                     onChange={(e) => setMessageText(e.target.value)}
                     rows={2}
-                    className="flex-1"
+                    className="flex-1 min-w-0"
                   />
                   <Button
                     size="sm"
@@ -321,7 +331,7 @@ export function LeadDetailPage() {
                 {loading || !lead ? (
                   <div className="space-y-3">
                     {Array.from({ length: 2 }).map((_, i) => (
-                      <div key={i} className="p-3 bg-[#f9fafb] rounded-lg space-y-2">
+                      <div key={i} className="p-3 bg-background rounded-lg space-y-2">
                         <Skeleton className="h-3.5 w-full" />
                         <Skeleton className="h-3.5 w-3/4" />
                         <Skeleton className="h-3 w-20" />
@@ -329,12 +339,12 @@ export function LeadDetailPage() {
                     ))}
                   </div>
                 ) : (lead.notes ?? []).length === 0 ? (
-                  <p className="text-sm text-[#94a3b8] text-center py-4">No notes yet</p>
+                  <p className="text-sm text-muted-foreground py-4">No notes yet</p>
                 ) : (
                   (lead.notes ?? []).map((note) => (
-                    <div key={note.id} className="p-3.5 bg-[#f9fafb] rounded-lg border border-[#e5e7eb]">
-                      <p className="text-sm text-[#0f172a]">{note.note}</p>
-                      <p className="text-xs text-[#94a3b8] mt-2 flex items-center gap-1">
+                    <div key={note.id} className="p-3.5 bg-background rounded-md border border-border">
+                      <p className="text-sm text-foreground whitespace-pre-wrap">{note.note}</p>
+                      <p className="text-xs text-muted-foreground mt-2 flex items-center gap-1">
                         <Clock className="w-3 h-3" />
                         {formatRelativeTime(note.createdAt)}
                       </p>
@@ -342,8 +352,11 @@ export function LeadDetailPage() {
                   ))
                 )}
               </div>
-              <div className="px-5 pb-4 pt-2 border-t border-[#e5e7eb]">
+              <div className="px-5 pb-4 pt-3 border-t border-border">
+                <label htmlFor="detail-note" className="crm-field-label">New note</label>
                 <Textarea
+                  id="detail-note"
+                  aria-describedby={actionError ? 'lead-action-error' : undefined}
                   placeholder="Add a note..."
                   value={noteText}
                   onChange={(e) => setNoteText(e.target.value)}
@@ -364,7 +377,7 @@ export function LeadDetailPage() {
         </div>
 
         {/* Right: Details */}
-        <div className="space-y-4">
+        <div className="min-w-0 space-y-4">
           <Card>
             <CardHeader>
               <CardTitle>Lead Details</CardTitle>
@@ -388,9 +401,9 @@ export function LeadDetailPage() {
                     { label: 'Created', value: lead.createdAt ? formatDate(lead.createdAt) : '—' },
                     { label: 'Updated', value: lead.updatedAt ? formatRelativeTime(lead.updatedAt) : '—' },
                   ].map(({ label, value }) => (
-                    <div key={label} className="flex items-center justify-between py-1 border-b border-[#f1f5f9] last:border-0">
-                      <span className="text-xs text-[#94a3b8] font-medium">{label}</span>
-                      <span className="text-sm text-[#0f172a]">{value}</span>
+                    <div key={label} className="flex flex-wrap gap-2 items-center justify-between py-2 border-b border-border last:border-0">
+                      <span className="text-xs text-muted-foreground font-medium">{label}</span>
+                      <span className="text-sm text-foreground min-w-0">{value}</span>
                     </div>
                   ))}
                 </>
@@ -402,12 +415,12 @@ export function LeadDetailPage() {
             <Card>
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
-                  <Building2 className="w-4 h-4 text-[#94a3b8]" />
+                  <Building2 aria-hidden="true" className="w-4 h-4 text-muted-foreground" />
                   Property Interest
                 </CardTitle>
               </CardHeader>
               <CardContent>
-                <p className="text-sm text-[#475569]">{lead.propertyInterest}</p>
+                <p className="text-sm text-muted-foreground">{lead.propertyInterest}</p>
               </CardContent>
             </Card>
           )}

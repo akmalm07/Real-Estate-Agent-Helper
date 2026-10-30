@@ -82,3 +82,60 @@ Component regressions run against the real TSX modules. The supervisor owns
 running-browser checks (desktop/mobile, contrast, keyboard, reduced motion,
 links, failed-image layout and screenshots) and `VISUAL-VERIFICATION.md`.
 This brief does not assert browser, database, authentication or provider acceptance.
+
+# Phase 2 — The working property desk
+
+The existing CRM now extends the approved paper/forest vocabulary; it is not a
+second visual system. Dashboard is **Monitor**, leads **Operate**, properties
+**Explore / Compare**, and lead detail **Command / Inspect**. The original
+RealCRM identity, routes, request payloads and provider boundaries stay intact.
+
+- The shell uses a quiet ruled masthead, persistent desktop navigation, accurate
+  current-route treatment (including lead detail), actual user initials/name/email,
+  a visible Logout action and a labelled mobile drawer. The unused top-bar search
+  is removed rather than presenting a non-working action. Skip-to-workspace,
+  focus-visible outlines, drawer/dialog focus containment, Escape and return focus
+  make the dense workspace keyboard-operable.
+- Dashboard keeps the real transformer and period control. A ruled metric strip,
+  prioritised verification attention, activity feed and status breakdown replace
+  floating equal-weight KPI boxes. No fabricated telemetry or new chart data.
+- Leads retain search, status filters, sort, referral, verification, editing and
+  both deletion workflows. Explicit detail links replace click-only rows. Mobile
+  rows become labelled records; tablet rows move actions below the data; desktop
+  aligns data and visible Actions disclosures. No new pagination is invented.
+- Properties keep grid/table comparison and all existing forms. Without a supported
+  photo field, cards deliberately say **No property photo** instead of assigning
+  unrelated architecture to a listing. The comparison viewport scrolls locally,
+  remains keyboard-focusable and keeps action disclosures inside the scroll area.
+- Detail keeps long contact text readable, separates conversation/notes from record
+  facts, and labels message, subject and note controls. SMS/email and action-error
+  states remain real existing workflows, not simulated production success.
+- Dialogs share the same paper/forest controls, associated field errors, numbered
+  sections, readable warnings and busy semantics. Their content must shrink inside
+  the available viewport, including borders and a vertical scrollbar.
+
+## D009: restrained technical precision
+
+User feedback on October 30 favours the existing harmony with a subtle technical
+feel. Within this phase only, existing metric numerals, property prices and detail
+scores use a narrowly scoped offline-safe monospace/tabular treatment. UI copy
+stays readable sans, page headings retain restrained serif, and precise rules and
+text-labelled statuses carry hierarchy. No neon, gradient, dark-mode overhaul or
+new feature. Home/global typography harmonisation remains the queued phase3 task.
+
+## Narrow shared style additions
+
+`index.css` adds CRM-scoped layout, wrapping, fields, modal sizing, comparison
+scrolling and numeric classes using the existing phase1 variables. Only minimum
+44px controls and focus treatment intentionally reach other routes inside the
+shared shell; reduced-motion rules remove CRM transitions. No palette, font
+asset, image, dependency or theme configuration was replaced. Existing image
+credits remain unchanged because this phase adds no imagery.
+
+Self-audit against the ten claude-design tells: **0/10**. There is no marketing
+hero, equal feature-tile grid, tech gradient, generic indigo, blur, monument stat,
+icon topper or centred stack. Existing chosen offline typography is deliberate.
+The caution rail is a meaningful verification warning, and the navigation rail
+is active-state information, not decorative organisation. This is a design
+self-audit, not independent accessibility or final application certification.
+Actual browser evidence and limitations are appended to VISUAL-VERIFICATION.md.
