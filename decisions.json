@@ -31,7 +31,11 @@
     "D008.image-provenance-recovery": {
       "answer": "Manager-selected asset recovery, not a user-specified image: original Unsplash photo/source mapping could not be verified (401), so do not publish it. Verified free editorial alternative is Wikimedia Commons File:Campus_North_Residential_Commons.jpg by Mx. Granger, repository metadata CC0 and primary CC0 deed both HTTP200. Use optimized local derivative with truthful editorial/not-listing/no-affiliation caption; preserve rejected-asset history and final crop/fallback checks. This fits existing free-image scope without new features/spending.",
       "at": "2026-10-29T20:34:44.329985+00:00"
+    },
+    "D009.subtle-tech-refinement": {
+      "answer": "User says they like the redesign and explicitly requests making it a bit techy, not too much, while keeping its harmony. Preserve the current coherent warm/editorial/photos direction and make a restrained polish, not a redesign restart. Concrete typography/metadata/numeral/border/status/feedback choices are manager-selected implementation details, not a user-requested new brand, feature set or dark/neon theme.",
+      "at": "2026-10-30T01:53:08.949201+00:00"
     }
   },
-  "last_updated": "2026-10-29T20:34:44.330000+00:00"
+  "last_updated": "2026-10-30T01:53:08.949214+00:00"
 }
