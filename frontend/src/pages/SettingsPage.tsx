@@ -1,127 +1,74 @@
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/Card'
 import { Button } from '../components/ui/Button'
 import type { ContactType, Preferences } from '../context/AuthContext'
-import {
-  Chrome,
-  Mail,
-  Bell,
-  Shield,
-  CheckCircle2,
-  AlertCircle,
-  ExternalLink,
-} from 'lucide-react'
 import { useAuth } from '../hooks/useAuth'
 import { useNavigate } from 'react-router-dom'
 import { BACKEND_URL } from '../consts'
-
-interface IntegrationCardProps {
-  icon: React.ReactNode
-  title: string
-  description: string
-  connected: boolean
-  onConnect: () => void
-  onDisconnect: () => void
-}
-
-function IntegrationCard({ icon, title, description, connected, onConnect, onDisconnect }: IntegrationCardProps) {
-  return (
-    <div className="flex items-center gap-4 py-4 border-b border-[#f1f5f9] last:border-0">
-      <div className="w-10 h-10 rounded-xl bg-[#f9fafb] border border-[#e5e7eb] flex items-center justify-center flex-shrink-0">
-        {icon}
-      </div>
-      <div className="flex-1 min-w-0">
-        <div className="flex items-center gap-2 mb-0.5">
-          <p className="text-sm font-medium text-[#0f172a]">{title}</p>
-          {connected ? (
-            <span className="flex items-center gap-1 text-xs text-emerald-600">
-              <CheckCircle2 className="w-3 h-3" />
-              Connected
-            </span>
-          ) : (
-            <span className="flex items-center gap-1 text-xs text-[#94a3b8]">
-              <AlertCircle className="w-3 h-3" />
-              Not connected
-            </span>
-          )}
-        </div>
-        <p className="text-xs text-[#94a3b8]">{description}</p>
-      </div>
-      <Button
-        variant={connected ? 'danger' : 'secondary'}
-        size="sm"
-        onClick={connected ? onDisconnect : onConnect}
-      >
-        {connected ? 'Disconnect' : 'Connect'}
-      </Button>
-    </div>
-  )
-}
+import { getInitials } from '../lib/utils'
 
 const options: ContactType[] = ['off', 'email', 'sms']
 
 export function SettingsPage() {
+  const { user } = useAuth()
+  const contextKey = JSON.stringify([user?.id, user?.newLeadNotify, user?.newMessageReplyNotify, user?.weeklySummeryNotify])
+  return <SettingsForm key={contextKey} />
+}
+
+function SettingsForm() {
   const { logout, user } = useAuth()
   const navigate = useNavigate()
-  const [googleConnected, setGoogleConnected] = useState(true)
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
+  const [saveError, setSaveError] = useState('')
+  const [passwordBusy, setPasswordBusy] = useState(false)
+  const [passwordError, setPasswordError] = useState('')
   const [sentEmail, setSentEmail] = useState(false)
-
-  const initials = user?.name.trim()
-    .split(/\s+/)
-    .map(word => word[0].toUpperCase())
-    .join('')
-
+  const initials = getInitials(user?.name.trim() || '')
   const [preferences, setPreferences] = useState<Preferences>({
-    newLeadNotify: 'off',
-    newMessageReplyNotify: 'off',
-    weeklySummeryNotify: 'off',
+    newLeadNotify: user?.newLeadNotify ?? 'off',
+    newMessageReplyNotify: user?.newMessageReplyNotify ?? 'off',
+    weeklySummeryNotify: user?.weeklySummeryNotify ?? 'off',
   })
 
-  useEffect(() => {
-    if (!user) return
-
-    setPreferences({
-      newLeadNotify: user.newLeadNotify,
-      newMessageReplyNotify: user.newMessageReplyNotify,
-      weeklySummeryNotify: user.weeklySummeryNotify,
-    })
-  }, [user])
-
   const handleChangePassword = async () => {
-    const response = await fetch(`${BACKEND_URL}api/auth/change-password`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      credentials: 'include',
-      body: JSON.stringify({
-        email: user?.email,
-      }),
-    })
-    if (!response.ok) {
-      throw new Error('Failed to send password reset to email')
+    setPasswordBusy(true)
+    setPasswordError('')
+    setSentEmail(false)
+    try {
+      const response = await fetch(`${BACKEND_URL}api/auth/change-password`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ email: user?.email }),
+      })
+      if (!response.ok) throw new Error('Failed to send password reset to email')
+      setSentEmail(true)
+    } catch (error) {
+      setPasswordError(error instanceof Error ? error.message : 'Password reset request failed. Please try again.')
+    } finally {
+      setPasswordBusy(false)
     }
-    setSentEmail(true)
   }
 
   const handleSave = async () => {
-    const response = await fetch(`${BACKEND_URL}api/settings/preferences`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      credentials: 'include',
-      body: JSON.stringify(preferences),
-    })
-
-    if (!response.ok) {
-      alert('Error saving the files')
+    setSaving(true)
+    setSaved(false)
+    setSaveError('')
+    try {
+      const response = await fetch(`${BACKEND_URL}api/settings/preferences`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify(preferences),
+      })
+      if (!response.ok) throw new Error('Preferences could not be saved. Please try again.')
+      setSaved(true)
+    } catch (error) {
+      setSaveError(error instanceof Error ? error.message : 'Preferences could not be saved. Please try again.')
+    } finally {
+      setSaving(false)
     }
-
-    setSaved(true)
-    setTimeout(() => setSaved(false), 3000)
   }
 
   const handleLogout = async () => {
@@ -130,173 +77,82 @@ export function SettingsPage() {
   }
 
   return (
-    <div className="space-y-6 max-w-2xl">
-      <div>
-        <h2 className="text-lg font-semibold text-[#0f172a]">Settings</h2>
-        <p className="text-sm text-[#94a3b8] mt-0.5">Manage your account and integrations</p>
-      </div>
-
-      {/* Profile */}
+    <div className="account-workspace space-y-6 max-w-3xl">
+      <header>
+        <p className="utility-label mb-2">Configure / Account</p>
+        <h1 className="account-title">Settings</h1>
+        <p className="text-sm text-muted-foreground mt-1">Manage your account and integrations</p>
+      </header>
       <Card>
-        <CardHeader>
-          <CardTitle>Profile</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="flex items-center gap-4 pb-4 border-[#f1f5f9]">
-            <div className="w-14 h-14 rounded-full bg-[#4f46e5] flex items-center justify-center">
-              <span className="text-white text-lg font-semibold">{initials}</span>
-            </div>
-            <div>
-              <p className="text-sm font-medium text-[#0f172a]">{user?.name}</p>
-              <p className="text-xs text-[#94a3b8]">{user?.email}</p>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* Integrations */}
-      <Card>
-        <CardHeader>
-          <div className="flex items-center justify-between">
-            <CardTitle>Integrations</CardTitle>
-            <a
-              href="#"
-              className="text-xs text-[#4f46e5] hover:underline flex items-center gap-1"
-            >
-              View docs
-              <ExternalLink className="w-3 h-3" />
-            </a>
-          </div>
-        </CardHeader>
-        <CardContent className="py-0">
-          <IntegrationCard
-            icon={<Chrome className="w-5 h-5 text-[#475569]" />}
-            title="Google / Gmail"
-            description="Sync emails and enable Google OAuth login"
-            connected={googleConnected}
-            onConnect={() => setGoogleConnected(true)}
-            onDisconnect={() => setGoogleConnected(false)}
-          />
-          { /*<IntegrationCard
-            icon={<Mail className="w-5 h-5 text-[#475569]" />}
-            title="Outlook / Microsoft"
-            description="Sync Outlook emails and calendar"
-            connected={false}
-            onConnect={() => {}}
-            onDisconnect={() => {}}
-          /> */}
-        </CardContent>
-      </Card>
-
-      {/* Notifications */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Bell className="w-4 h-4 text-[#94a3b8]" />
-            Notifications
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-3">
-          {[
-            {
-              key: 'newLeadNotify',
-              label: 'New lead notifications',
-              description: 'Get notified when a new lead comes in',
-            },
-            {
-              key: 'newMessageReplyNotify',
-              label: 'Message replies',
-              description: 'Get notified when a lead replies',
-            },
-            {
-              key: 'weeklySummaryNotify',
-              label: 'Weekly summary',
-              description: 'Receive a weekly performance summary',
-            },
-          ].map(({ key, label, description }) => {
-            const value = preferences[key as keyof Preferences]
-
-            return (
-              <div
-                key={key}
-                className="flex items-center justify-between py-2 border-b border-[#f1f5f9]"
-              >
-                <div>
-                  <p className="text-sm font-medium text-[#0f172a]">{label}</p>
-                  <p className="text-xs text-[#94a3b8]">{description}</p>
-                </div>
-
-                <select
-                  value={value}
-                  onChange={(e) =>
-                    setPreferences((prev) => ({
-                      ...prev,
-                      [key]: e.target.value as ContactType,
-                    }))
-                  }
-                  className="text-sm border rounded px-2 py-1"
-                >
-                  {options.map((opt) => (
-                    <option key={opt} value={opt}>
-                      {opt}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            )
-          })}
-          <div className="flex items-center gap-3">
-            <Button
-              size="sm"
-              loading={saving}
-              onClick={handleSave}
-              icon={saved ? <CheckCircle2 className="w-3.5 h-3.5" /> : undefined}
-            >
-              {saved ? 'Saved!' : 'Save Changes'}
-            </Button>
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* Account / Danger zone */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2 text-red-600">
-            <Shield className="w-4 h-4" />
-            Account
-          </CardTitle>
-        </CardHeader>
+        <CardHeader><CardTitle>Profile</CardTitle></CardHeader>
         <CardContent>
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm font-medium text-[#0f172a]">Sign out</p>
-              <p className="text-xs text-[#94a3b8]">Sign out of your RealCRM account</p>
-            </div>
-            <Button variant="danger" size="sm" onClick={handleLogout}>
-              Sign Out
-            </Button>
+          <div className="flex items-center gap-4">
+            <div className="w-12 h-12 shrink-0 rounded-md bg-accent flex items-center justify-center text-primary font-semibold" aria-hidden="true">{initials}</div>
+            <div className="min-w-0 break-words"><p className="font-semibold">{user?.name}</p><p className="text-sm text-muted-foreground">{user?.email}</p></div>
           </div>
         </CardContent>
-
-        {user?.source === 'manual' && (
-          <CardContent>
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-medium text-[#0f172a]">Change Password</p>
-                <p className="text-xs text-[#94a3b8]">Change your password</p>
-              </div>
-              <Button variant="danger" size="sm" onClick={handleChangePassword}>
-                Change Password
-              </Button>
+      </Card>
+      <Card>
+        <CardHeader><CardTitle>Integrations</CardTitle></CardHeader>
+        <CardContent>
+          <div className="settings-row">
+            <div>
+              <h2 className="text-sm font-semibold">Google / Gmail</h2>
+              <p className="text-sm text-muted-foreground mt-1">Sync emails and enable Google OAuth login</p>
+              <p id="google-status" className="text-sm text-caution mt-2">Connection status unavailable</p>
+              <p id="google-pending" className="text-sm text-muted-foreground">Connection configuration pending. These controls are not connected.</p>
             </div>
-            {sentEmail && (
-              <div className="mt-4 flex items-center gap-2 rounded-xl border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-700">
-                <CheckCircle2 size={18} />
-                Email successfully sent! Please check your inbox or spam.
+            <div className="flex flex-wrap gap-2">
+              <Button variant="secondary" size="sm" disabled aria-describedby="google-status google-pending">Connect</Button>
+              <Button variant="secondary" size="sm" disabled aria-describedby="google-status google-pending">Disconnect</Button>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+      <Card>
+        <CardHeader><CardTitle>Notifications</CardTitle></CardHeader>
+        <CardContent className="space-y-4">
+          {[
+            { key: 'newLeadNotify', label: 'New lead notifications', description: 'Get notified when a new lead comes in' },
+            { key: 'newMessageReplyNotify', label: 'Message replies', description: 'Get notified when a lead replies' },
+            { key: 'weeklySummaryNotify', label: 'Weekly summary', description: 'Receive a weekly performance summary' },
+          ].map(({ key, label, description }) => (
+            <div key={key} className="settings-row border-b border-border pb-4">
+              <div>
+                <label htmlFor={`notify-${key}`} className="text-sm font-semibold">{label}</label>
+                <p id={`notify-${key}-help`} className="text-sm text-muted-foreground mt-1">{description}</p>
               </div>
-            )}
-          </CardContent>
-        )}
+              <select id={`notify-${key}`} aria-describedby={`notify-${key}-help`} disabled={saving}
+                value={preferences[key as keyof Preferences]}
+                onChange={e => { setSaved(false); setPreferences(prev => ({ ...prev, [key]: e.target.value as ContactType })) }}
+                className="crm-field settings-select">
+                {options.map(opt => <option key={opt} value={opt}>{opt}</option>)}
+              </select>
+            </div>
+          ))}
+          <div className="flex flex-wrap items-center gap-3" aria-busy={saving}>
+            <Button size="sm" loading={saving} onClick={handleSave}>{saving ? 'Saving…' : 'Save Changes'}</Button>
+            {saved && <p role="status" className="text-sm text-primary">Saved!</p>}
+          </div>
+          {saveError && <p role="alert" className="account-error">{saveError}</p>}
+        </CardContent>
+      </Card>
+      <Card>
+        <CardHeader><CardTitle>Account</CardTitle></CardHeader>
+        <CardContent className="space-y-5">
+          <div className="settings-row">
+            <div><h2 className="text-sm font-semibold">Sign out</h2><p className="text-sm text-muted-foreground mt-1">Sign out of your RealCRM account</p></div>
+            <Button variant="secondary" size="sm" onClick={handleLogout}>Sign Out</Button>
+          </div>
+          {user?.source === 'manual' && <div className="border-t border-border pt-5">
+            <div className="settings-row" aria-busy={passwordBusy}>
+              <div><h2 className="text-sm font-semibold">Change Password</h2><p className="text-sm text-muted-foreground mt-1">Request a password reset email</p></div>
+              <Button variant="secondary" size="sm" loading={passwordBusy} onClick={handleChangePassword} aria-describedby={passwordError ? 'password-request-error' : undefined}>Change Password</Button>
+            </div>
+            {passwordError && <p id="password-request-error" role="alert" className="account-error mt-3">{passwordError}</p>}
+            {sentEmail && <p role="status" className="mt-3 text-sm text-primary">Email successfully sent! Please check your inbox or spam.</p>}
+          </div>}
+        </CardContent>
       </Card>
     </div>
   )

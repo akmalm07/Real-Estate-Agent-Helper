@@ -7,7 +7,7 @@
  *  - Render UI — NO business logic here
  */
 
-import { useEffect, useRef, useState, useMemo, useCallback } from 'react'
+import { useMemo, useCallback } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import {
   Users,
@@ -16,16 +16,14 @@ import {
   ArrowUpRight,
   Activity,
   UserPlus,
-  BellRing,
   Inbox,
   CheckCircle2,
   StickyNote,
-  ChevronDown,
   ShieldAlert,
 } from 'lucide-react'
 
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/Card'
-import { SkeletonCard, Skeleton } from '../components/ui/Skeleton'
+import { Skeleton } from '../components/ui/Skeleton'
 import { ErrorState } from '../components/ui/ErrorState'
 import { formatRelativeTime } from '../lib/utils'
 
@@ -41,44 +39,19 @@ import type {
   ActivityType,
 } from '../lib/dashboardTransformer'
 
-import { useDashboardCache } from '../context/DashboardCacheContext'
+import { useDashboardCache } from '../hooks/useDashboardCache'
 
 // ---------------------------------------------------------------------------
 // Activity icon
 // ---------------------------------------------------------------------------
 
 function ActivityIcon({ type }: { type: ActivityType }) {
-  const config: Record<ActivityType, { icon: React.ReactNode; bg: string }> = {
-    lead_created: {
-      icon: <UserPlus className="w-3.5 h-3.5 text-blue-600" />,
-      bg: 'bg-blue-50',
-    },
-    message_received: {
-      icon: <Inbox className="w-3.5 h-3.5 text-emerald-600" />,
-      bg: 'bg-emerald-50',
-    },
-    message_sent: {
-      icon: <MessageSquare className="w-3.5 h-3.5 text-indigo-600" />,
-      bg: 'bg-indigo-50',
-    },
-    ai_disabled: {
-      icon: <CheckCircle2 className="w-3.5 h-3.5 text-orange-500" />,
-      bg: 'bg-orange-50',
-    },
-    note_added: {
-      icon: <StickyNote className="w-3.5 h-3.5 text-amber-600" />,
-      bg: 'bg-amber-50',
-    },
-  }
-
-  const { icon, bg } = config[type] ?? {
-    icon: <Activity className="w-3.5 h-3.5 text-slate-400" />,
-    bg: 'bg-slate-50',
-  }
+  const icons = { lead_created: UserPlus, message_received: Inbox, message_sent: MessageSquare, ai_disabled: CheckCircle2, note_added: StickyNote }
+  const Icon = icons[type] ?? Activity
 
   return (
-    <div className={`w-7 h-7 rounded-lg ${bg} flex items-center justify-center flex-shrink-0`}>
-      {icon}
+    <div aria-hidden="true" className="w-6 h-6 text-primary flex items-center justify-center flex-shrink-0">
+      <Icon className="w-3.5 h-3.5" />
     </div>
   )
 }
@@ -86,8 +59,6 @@ function ActivityIcon({ type }: { type: ActivityType }) {
 // ---------------------------------------------------------------------------
 // KPI icon mapping (order matches transformer output)
 // ---------------------------------------------------------------------------
-
-const KPI_ICONS = [Users, UserPlus, Inbox, BellRing]
 
 // ---------------------------------------------------------------------------
 // Time window dropdown
@@ -100,50 +71,14 @@ function TimeWindowDropdown({
   value: TimeWindow
   onChange: (w: TimeWindow) => void
 }) {
-  const [open, setOpen] = useState(false)
-  const ref = useRef<HTMLDivElement>(null)
-
-  useEffect(() => {
-    function handler(e: MouseEvent) {
-      if (ref.current && !ref.current.contains(e.target as Node)) {
-        setOpen(false)
-      }
-    }
-    document.addEventListener('mousedown', handler)
-    return () => document.removeEventListener('mousedown', handler)
-  }, [])
-
   return (
-    <div ref={ref} className="relative">
-      <button
-        onClick={() => setOpen((o) => !o)}
-        className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-[#e2e8f0] bg-white text-sm font-medium text-[#475569] hover:bg-[#f8fafc] hover:border-[#cbd5e1] transition-colors"
-      >
-        {WINDOW_LABELS[value]}
-        <ChevronDown className={`w-3.5 h-3.5 transition-transform ${open ? 'rotate-180' : ''}`} />
-      </button>
-
-      {open && (
-        <div className="absolute right-0 mt-1.5 w-40 bg-white border border-[#e2e8f0] rounded-lg shadow-lg z-20 py-1 overflow-hidden">
-          {TIME_WINDOW_OPTIONS.map((opt) => (
-            <button
-              key={opt.value}
-              onClick={() => {
-                onChange(opt.value)
-                setOpen(false)
-              }}
-              className={`w-full text-left px-3 py-2 text-sm transition-colors ${
-                value === opt.value
-                  ? 'bg-[#eef2ff] text-[#4f46e5] font-medium'
-                  : 'text-[#475569] hover:bg-[#f8fafc]'
-              }`}
-            >
-              {opt.label}
-            </button>
-          ))}
-        </div>
-      )}
-    </div>
+    <label className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+      Period
+      <select value={value} onChange={(e) => onChange(e.target.value as TimeWindow)}
+        className="min-h-11 rounded-md border border-input bg-card px-3 text-sm text-foreground">
+        {TIME_WINDOW_OPTIONS.map((opt) => <option key={opt.value} value={opt.value}>{WINDOW_LABELS[opt.value]}</option>)}
+      </select>
+    </label>
   )
 }
 
@@ -192,14 +127,14 @@ export function DashboardPage() {
   }
 
   return (
-    <div className="space-y-6">
+    <div className="crm-workspace space-y-5">
       {/* Page header */}
-      <div className="flex items-center justify-between">
+      <div className="crm-page-header">
         <div>
           <div className="flex items-center gap-3">
-            <h2 className="text-lg font-semibold text-[#0f172a]">Overview</h2>
+            <h1 className="crm-page-title">Overview</h1>
           </div>
-          <p className="text-sm text-[#94a3b8] mt-0.5">
+          <p className="text-sm text-muted-foreground mt-1">
             {new Intl.DateTimeFormat('en-US', {
               weekday: 'long',
               month: 'long',
@@ -208,11 +143,11 @@ export function DashboardPage() {
           </p>
         </div>
 
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-3">
           <TimeWindowDropdown value={selectedWindow} onChange={setWindow} />
           <button
             onClick={() => navigate('/leads')}
-            className="flex items-center gap-1.5 text-sm font-medium text-[#4f46e5] hover:text-[#4338ca] transition-colors"
+            className="flex items-center gap-1.5 text-sm font-medium text-primary hover:underline transition-colors"
           >
             View all leads
             <ArrowUpRight className="w-4 h-4" />
@@ -222,9 +157,9 @@ export function DashboardPage() {
 
       {/* Unverified leads attention banner */}
       {unverifiedCount > 0 && (
-        <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 flex items-center gap-3">
-          <ShieldAlert className="w-4 h-4 text-amber-600 flex-shrink-0" />
-          <p className="text-sm text-amber-800 flex-1">
+        <section aria-label="Verification attention" className="crm-attention">
+          <ShieldAlert aria-hidden="true" className="w-5 h-5 flex-shrink-0" />
+          <p className="text-sm flex-1 min-w-0">
             <span className="font-semibold">
               {unverifiedCount} unverified lead{unverifiedCount !== 1 ? 's' : ''}
             </span>
@@ -232,39 +167,29 @@ export function DashboardPage() {
           </p>
           <button
             onClick={() => navigate('/leads?filter=unverified')}
-            className="text-xs font-semibold text-amber-700 hover:text-amber-900 underline underline-offset-2 transition-colors flex-shrink-0"
+            className="text-sm font-semibold underline underline-offset-4 flex-shrink-0"
           >
             Review now
           </button>
-        </div>
+        </section>
       )}
 
       {/* KPI Cards */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+      <dl aria-label="Lead metrics" className="crm-kpi-strip">
         {loading || !dashboard
-          ? Array.from({ length: 4 }).map((_, i) => <SkeletonCard key={i} />)
-          : dashboard.kpis.map(({ label, value, description }, i) => {
-              const Icon = KPI_ICONS[i] ?? Activity
-              return (
-                <Card key={label}>
-                  <CardContent className="p-5">
-                    <div className="flex items-start justify-between mb-3">
-                      <div className="w-8 h-8 rounded-lg bg-[#eef2ff] flex items-center justify-center">
-                        <Icon className="w-4 h-4 text-[#4f46e5]" />
-                      </div>
-                    </div>
-                    <p className="text-2xl font-semibold text-[#0f172a]">{value}</p>
-                    <p className="text-xs font-medium text-[#0f172a] mt-0.5">{label}</p>
-                    <p className="text-xs text-[#94a3b8] mt-0.5">{description}</p>
-                  </CardContent>
-                </Card>
-              )
-            })}
-      </div>
+          ? Array.from({ length: 4 }).map((_, i) => <div key={i}><dt className="sr-only">Loading metric</dt><dd><Skeleton className="h-16 w-full" /></dd></div>)
+          : dashboard.kpis.map(({ label, value, description }) => (
+              <div key={label}>
+                <dt className="text-sm text-muted-foreground">{label}</dt>
+                <dd className="crm-numeric text-3xl font-semibold mt-1">{value}</dd>
+                <dd className="text-xs text-muted-foreground mt-1">{description}</dd>
+              </div>
+            ))}
+      </dl>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+      <div className="crm-inspect-grid">
         {/* Activity Feed */}
-        <div className="lg:col-span-2">
+        <div className="min-w-0">
           <Card>
             <CardHeader>
               <CardTitle>Recent Activity</CardTitle>
@@ -284,26 +209,26 @@ export function DashboardPage() {
                 ))}
               </div>
             ) : dashboard.activityFeed.length === 0 ? (
-              <div className="p-8 text-center text-sm text-[#94a3b8]">
+              <div className="p-8 text-sm text-muted-foreground">
                 No activity in the selected time window.
               </div>
             ) : (
-              <div className="divide-y divide-[#e5e7eb]">
+              <div className="divide-y divide-border">
                 {dashboard.activityFeed.map((item) => (
                   <div
                     key={item.id}
-                    className="flex items-center gap-3 px-5 py-3.5 hover:bg-[#f9fafb] transition-colors"
+                    className="flex flex-wrap sm:flex-nowrap items-center gap-3 px-5 py-3 hover:bg-background transition-colors"
                   >
                     <ActivityIcon type={item.type} />
                     <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium text-[#0f172a] truncate">
+                      <p className="text-sm font-medium text-foreground [overflow-wrap:anywhere]">
                         {item.leadName && (
-                          <span className="text-[#4f46e5]">{item.leadName} — </span>
+                          <span className="text-primary">{item.leadName} — </span>
                         )}
                         {item.label}
                       </p>
                     </div>
-                    <span className="text-xs text-[#94a3b8] flex-shrink-0">
+                    <span className="text-xs text-muted-foreground flex-shrink-0">
                       {formatRelativeTime(item.timestamp)}
                     </span>
                   </div>
@@ -314,7 +239,7 @@ export function DashboardPage() {
         </div>
 
         {/* Right column */}
-        <div className="space-y-4">
+        <div className="min-w-0 space-y-4">
           {/* Lead Status Breakdown */}
           <Card>
             <CardHeader>
@@ -335,24 +260,24 @@ export function DashboardPage() {
                 </div>
               ) : (
                 <div className="space-y-3">
-                  {dashboard.statusBars.map(({ status, label, count, percentage, color }) => (
+                  {dashboard.statusBars.map(({ status, label, count, percentage }) => (
                     <div key={status}>
                       <div className="flex items-center justify-between mb-1">
                         <div className="flex items-center gap-1.5">
                           {status === 'unverified' && (
-                            <ShieldAlert className="w-3 h-3 text-amber-500" />
+                            <ShieldAlert aria-hidden="true" className="w-3 h-3 text-caution" />
                           )}
-                          <span className={`text-sm font-medium ${status === 'unverified' ? 'text-amber-700' : 'text-[#475569]'}`}>
+                          <span className={`text-sm font-medium ${status === 'unverified' ? 'text-caution' : 'text-muted-foreground'}`}>
                             {label}
                           </span>
                         </div>
-                        <span className={`text-sm font-medium ${status === 'unverified' && count > 0 ? 'text-amber-700' : 'text-[#0f172a]'}`}>
+                        <span className={`text-sm font-medium ${status === 'unverified' && count > 0 ? 'text-caution' : 'text-foreground'}`}>
                           {count}
                         </span>
                       </div>
-                      <div className="h-1.5 bg-[#f1f5f9] rounded-full overflow-hidden">
+                      <div aria-hidden="true" className="h-1.5 bg-muted rounded-sm overflow-hidden">
                         <div
-                          className={`h-full ${color} rounded-full transition-all duration-500`}
+                          className={`h-full ${status === 'unverified' ? 'bg-caution' : 'bg-primary'} rounded-sm transition-all duration-500`}
                           style={{ width: `${percentage}%` }}
                         />
                       </div>
@@ -377,11 +302,11 @@ export function DashboardPage() {
                 <button
                   key={to}
                   onClick={() => navigate(to)}
-                  className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-[#475569] hover:bg-[#f9fafb] hover:text-[#0f172a] transition-colors text-left"
+                  className="w-full flex items-center gap-3 px-3 py-2.5 rounded-md text-sm font-medium text-primary hover:bg-accent transition-colors text-left"
                 >
-                  <Icon className="w-4 h-4 text-[#94a3b8]" />
+                  <Icon aria-hidden="true" className="w-4 h-4 text-muted-foreground" />
                   {label}
-                  <ArrowUpRight className="w-3.5 h-3.5 ml-auto text-[#94a3b8]" />
+                  <ArrowUpRight aria-hidden="true" className="w-3.5 h-3.5 ml-auto text-muted-foreground" />
                 </button>
               ))}
             </CardContent>

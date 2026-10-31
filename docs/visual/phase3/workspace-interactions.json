@@ -1,0 +1,308 @@
+[
+  {
+    "check": "settings-390",
+    "data": {
+      "client": 390,
+      "scroll": 390,
+      "main": [
+        380,
+        380,
+        944,
+        1560
+      ],
+      "unlabelled": [],
+      "missingDescriptions": [],
+      "smallControls": []
+    }
+  },
+  {
+    "check": "avatar-390",
+    "data": {
+      "text": "S\u2014",
+      "width": 48,
+      "scroll": 48
+    }
+  },
+  {
+    "check": "settings-tab-390",
+    "data": {
+      "id": "notify-newMessageReplyNotify",
+      "outline": "rgb(38, 79, 62) solid 2px"
+    }
+  },
+  {
+    "check": "settings-busy-390",
+    "data": {
+      "disabled": true,
+      "busy": true
+    }
+  },
+  {
+    "check": "save-rejection-390",
+    "data": {
+      "alerts": [
+        "Preferences could not be saved. Please try again."
+      ],
+      "success": false
+    }
+  },
+  {
+    "check": "password-busy-390",
+    "data": {
+      "disabled": true
+    }
+  },
+  {
+    "check": "password-rejection-390",
+    "data": {
+      "alerts": [
+        "Preferences could not be saved. Please try again.",
+        "Failed to send password reset to email"
+      ],
+      "success": false,
+      "requests": [
+        {
+          "path": "/api/settings/preferences",
+          "method": "POST",
+          "body": "{\"newLeadNotify\":\"off\",\"newMessageReplyNotify\":\"email\",\"weeklySummeryNotify\":\"off\"}"
+        },
+        {
+          "path": "/api/auth/change-password",
+          "method": "POST",
+          "body": "{\"email\":\"alexandra.montgomery.wellington.long.agent@example.invalid\"}"
+        }
+      ]
+    }
+  },
+  {
+    "check": "settings-scroll-390",
+    "data": {
+      "top": 759,
+      "client": 944,
+      "scroll": 1703
+    }
+  },
+  {
+    "check": "inbox-390",
+    "data": {
+      "client": 390,
+      "scroll": 390,
+      "main": [
+        380,
+        380,
+        944,
+        1286
+      ],
+      "unlabelled": [],
+      "missingDescriptions": [],
+      "smallControls": []
+    }
+  },
+  {
+    "check": "inbox-selection-390",
+    "data": {
+      "pressed": [
+        "false",
+        "true"
+      ],
+      "heading": "SIMULATED \u2014 Jordan Example"
+    }
+  },
+  {
+    "check": "draft-390",
+    "data": {
+      "value": "SIMULATED draft retained, no delivery",
+      "disabled": true,
+      "posts": []
+    }
+  },
+  {
+    "check": "long-thread-390",
+    "data": {
+      "thread": [
+        346,
+        346
+      ],
+      "bodies": [
+        {
+          "client": 282,
+          "scroll": 282,
+          "text": 60
+        },
+        {
+          "client": 280,
+          "scroll": 280,
+          "text": 330
+        }
+      ]
+    }
+  },
+  {
+    "check": "inbox-scroll-390",
+    "data": {
+      "top": 342,
+      "client": 944,
+      "scroll": 1286
+    }
+  },
+  {
+    "check": "search-empty-390",
+    "data": {
+      "text": "Search conversations\nNo conversations\n\nNo matches found.",
+      "count": 0
+    }
+  },
+  {
+    "check": "settings-1440",
+    "data": {
+      "client": 1440,
+      "scroll": 1440,
+      "main": [
+        1190,
+        1190,
+        944,
+        1136
+      ],
+      "unlabelled": [],
+      "missingDescriptions": [],
+      "smallControls": []
+    }
+  },
+  {
+    "check": "avatar-1440",
+    "data": {
+      "text": "S\u2014",
+      "width": 48,
+      "scroll": 48
+    }
+  },
+  {
+    "check": "settings-tab-1440",
+    "data": {
+      "id": "notify-newMessageReplyNotify",
+      "outline": "rgb(38, 79, 62) solid 2px"
+    }
+  },
+  {
+    "check": "settings-busy-1440",
+    "data": {
+      "disabled": true,
+      "busy": true
+    }
+  },
+  {
+    "check": "save-rejection-1440",
+    "data": {
+      "alerts": [
+        "Preferences could not be saved. Please try again."
+      ],
+      "success": false
+    }
+  },
+  {
+    "check": "password-busy-1440",
+    "data": {
+      "disabled": true
+    }
+  },
+  {
+    "check": "password-rejection-1440",
+    "data": {
+      "alerts": [
+        "Preferences could not be saved. Please try again.",
+        "Failed to send password reset to email"
+      ],
+      "success": false,
+      "requests": [
+        {
+          "path": "/api/settings/preferences",
+          "method": "POST",
+          "body": "{\"newLeadNotify\":\"off\",\"newMessageReplyNotify\":\"email\",\"weeklySummeryNotify\":\"off\"}"
+        },
+        {
+          "path": "/api/auth/change-password",
+          "method": "POST",
+          "body": "{\"email\":\"alexandra.montgomery.wellington.long.agent@example.invalid\"}"
+        }
+      ]
+    }
+  },
+  {
+    "check": "settings-scroll-1440",
+    "data": {
+      "top": 314,
+      "client": 944,
+      "scroll": 1258
+    }
+  },
+  {
+    "check": "inbox-1440",
+    "data": {
+      "client": 1440,
+      "scroll": 1440,
+      "main": [
+        1200,
+        1200,
+        944,
+        944
+      ],
+      "unlabelled": [],
+      "missingDescriptions": [],
+      "smallControls": []
+    }
+  },
+  {
+    "check": "inbox-selection-1440",
+    "data": {
+      "pressed": [
+        "false",
+        "true"
+      ],
+      "heading": "SIMULATED \u2014 Jordan Example"
+    }
+  },
+  {
+    "check": "draft-1440",
+    "data": {
+      "value": "SIMULATED draft retained, no delivery",
+      "disabled": true,
+      "posts": []
+    }
+  },
+  {
+    "check": "long-thread-1440",
+    "data": {
+      "thread": [
+        784,
+        784
+      ],
+      "bodies": [
+        {
+          "client": 385,
+          "scroll": 385,
+          "text": 60
+        },
+        {
+          "client": 594,
+          "scroll": 594,
+          "text": 330
+        }
+      ]
+    }
+  },
+  {
+    "check": "inbox-scroll-1440",
+    "data": {
+      "top": 0,
+      "client": 944,
+      "scroll": 944
+    }
+  },
+  {
+    "check": "search-empty-1440",
+    "data": {
+      "text": "Search conversations\nNo conversations\n\nNo matches found.",
+      "count": 0
+    }
+  }
+]

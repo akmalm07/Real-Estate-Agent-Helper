@@ -1,11 +1,19 @@
 import { useEffect, useState } from 'react'
 import { X, ShieldAlert, Sparkles, MessageSquare, BellOff, Info, CheckCircle2 } from 'lucide-react'
 import { Button } from '../ui/Button'
-import { SectionHeader } from './LeadFormShared'
+import { ModalFrame, SectionHeader } from './LeadFormShared'
 import { BACKEND_URL } from '../../consts'
 import type { Lead, MessageMode, VerifyLeadErrors } from './types'
 
 export function VerifyLeadModal({ lead, onClose, onSuccess }: {
+  lead: Lead
+  onClose: () => void
+  onSuccess: (warning?: string) => void
+}) {
+  return <VerifyLeadForm key={lead.id} lead={lead} onClose={onClose} onSuccess={onSuccess} />
+}
+
+function VerifyLeadForm({ lead, onClose, onSuccess }: {
   lead: Lead
   onClose: () => void
   onSuccess: (warning?: string) => void
@@ -16,19 +24,26 @@ export function VerifyLeadModal({ lead, onClose, onSuccess }: {
   const [emailBody, setEmailBody]       = useState('')
   const [errors, setErrors]             = useState<VerifyLeadErrors>({})
   const [submitting, setSubmitting]     = useState(false)
-  const [fullLead, setFullLead]         = useState<Lead | null>(null)
-  const [loadingLead, setLoadingLead]   = useState(true)
-  const [loadError, setLoadError]       = useState<string | null>(null)
+  // Key details by the same primitive fields that determine the request context.
+  // Drafts belong to the lead identity, not to the fetched detail snapshot.
+  const requestKey = JSON.stringify([lead.id, lead.name, lead.email, lead.phone, lead.status, lead.source, lead.createdAt, lead.updatedAt])
+  const [details, setDetails] = useState<{ key: string; lead: Lead | null; error: string | null; loading: boolean }>({
+    key: requestKey, lead: null, error: null, loading: true,
+  })
+  if (details.key !== requestKey) {
+    setDetails({ key: requestKey, lead: null, error: null, loading: true })
+  }
+  const loadingLead = details.key !== requestKey || details.loading
+  const fullLead = !loadingLead ? details.lead : null
+  const loadError = !loadingLead ? details.error : null
 
   useEffect(() => {
     let cancelled = false
-    setLoadingLead(true)
-    setLoadError(null)
     fetch(`${BACKEND_URL}api/leads/${lead.id}`, { credentials: 'include' })
       .then((r) => r.json())
       .then((data) => {
         if (cancelled) return
-        setFullLead({
+        setDetails({ key: requestKey, error: null, loading: false, lead: {
           id:        String(data.id),
           name:      data.name      ?? lead.name,
           email:     data.email     ?? lead.email,
@@ -38,12 +53,11 @@ export function VerifyLeadModal({ lead, onClose, onSuccess }: {
           score:     data.score     ?? 0,
           createdAt: data.createdAt ?? lead.createdAt,
           updatedAt: data.updatedAt ?? lead.updatedAt,
-        })
+        } })
       })
-      .catch(() => { if (!cancelled) setLoadError('Could not load lead details. Please try again.') })
-      .finally(() => { if (!cancelled) setLoadingLead(false) })
+      .catch(() => { if (!cancelled) setDetails({ key: requestKey, lead: null, loading: false, error: 'Could not load lead details. Please try again.' }) })
     return () => { cancelled = true }
-  }, [lead.id, lead.name, lead.email, lead.phone, lead.status, lead.source, lead.createdAt, lead.updatedAt])
+  }, [requestKey, lead.id, lead.name, lead.email, lead.phone, lead.status, lead.source, lead.createdAt, lead.updatedAt])
 
   const hasPhone = (fullLead?.phone ?? '').trim() !== ''
   const hasEmail = (fullLead?.email ?? '').trim() !== ''
@@ -112,41 +126,41 @@ export function VerifyLeadModal({ lead, onClose, onSuccess }: {
   const firstName = fullLead?.name?.split(' ')[0] ?? 'there'
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-xl max-h-[90vh] flex flex-col">
+    <ModalFrame titleId="verify-lead-title" onClose={onClose} busy={submitting}>
+      <div className="w-full max-w-xl flex flex-col">
         {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-[#e5e7eb]">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-border">
           <div className="flex items-center gap-3">
-            <div className="w-8 h-8 rounded-full bg-amber-100 flex items-center justify-center flex-shrink-0">
-              <ShieldAlert className="w-4 h-4 text-amber-600" />
+            <div className="w-8 h-8 rounded-md bg-caution-subtle flex items-center justify-center flex-shrink-0">
+              <ShieldAlert aria-hidden="true" className="w-4 h-4 text-caution" />
             </div>
             <div>
-              <h3 className="text-base font-semibold text-[#0f172a]">Verify Lead</h3>
-              <p className="text-xs text-[#94a3b8] mt-0.5">
-                Review and activate <span className="font-medium text-[#0f172a]">{lead.name}</span>
+              <h3 id="verify-lead-title" className="text-base font-semibold text-foreground">Verify Lead</h3>
+              <p className="text-sm text-muted-foreground mt-1">
+                Review and activate <span className="font-medium text-foreground">{lead.name}</span>
               </p>
             </div>
           </div>
-          <button onClick={onClose} className="text-[#94a3b8] hover:text-[#475569] transition-colors ml-4 flex-shrink-0">
+          <button onClick={onClose} disabled={submitting} aria-label="Close verification dialog" className="text-muted-foreground hover:text-foreground transition-colors ml-4 flex-shrink-0 min-w-11 flex items-center justify-center">
             <X className="w-5 h-5" />
           </button>
         </div>
 
         {/* Body */}
-        <div className="flex-1 overflow-y-auto px-6 py-5 space-y-6">
-          {errors.general && <div className="bg-red-50 border border-red-200 rounded-lg px-4 py-3 text-sm text-red-700">{errors.general}</div>}
-          {loadError    && <div className="bg-red-50 border border-red-200 rounded-lg px-4 py-3 text-sm text-red-700">{loadError}</div>}
+        <div className="min-h-0 px-6 py-5 space-y-6">
+          {errors.general && <div role="alert" className="bg-destructive-subtle border border-destructive rounded-lg px-4 py-3 text-sm text-destructive">{errors.general}</div>}
+          {loadError    && <div role="alert" className="bg-destructive-subtle border border-destructive rounded-lg px-4 py-3 text-sm text-destructive">{loadError}</div>}
 
           {/* Lead summary */}
-          <div className="bg-amber-50 border border-amber-200 rounded-xl p-4">
-            <p className="text-xs font-semibold text-amber-800 uppercase tracking-wide mb-2">Lead Details</p>
+          <div className="bg-caution-subtle border border-border rounded-lg p-4">
+            <p className="text-xs font-semibold text-caution uppercase tracking-wide mb-2">Lead Details</p>
             {loadingLead ? (
               <div className="space-y-2">
-                <div className="h-3 bg-amber-200/60 rounded animate-pulse w-3/4" />
-                <div className="h-3 bg-amber-200/60 rounded animate-pulse w-1/2" />
+                <div aria-hidden="true" className="h-3 bg-muted rounded animate-pulse w-3/4" />
+                <div aria-hidden="true" className="h-3 bg-muted rounded animate-pulse w-1/2" />
               </div>
             ) : (
-              <div className="grid grid-cols-2 gap-2 text-xs text-amber-900">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-sm text-caution">
                 <div><span className="font-medium">Name:</span>   {fullLead?.name   || lead.name   || '—'}</div>
                 <div><span className="font-medium">Source:</span> {fullLead?.source || lead.source || '—'}</div>
                 <div><span className="font-medium">Email:</span>  {fullLead?.email  || '—'}</div>
@@ -161,10 +175,10 @@ export function VerifyLeadModal({ lead, onClose, onSuccess }: {
               <SectionHeader number={1} title="Initial Outreach" subtitle="Choose how you'd like to reach out to this lead after verifying them." />
 
               {/* Mode toggle */}
-              <div className="flex gap-2 mb-4">
+              <div role="group" aria-label="Initial outreach" className="flex flex-wrap gap-2 mb-4">
                 {(['ai', 'manual', 'none'] as MessageMode[]).map((m) => (
-                  <button key={m} type="button" onClick={() => { setMessageMode(m); setErrors({}) }}
-                    className={`flex-1 flex items-center justify-center gap-2 px-3 py-2.5 rounded-lg text-sm font-medium border transition-colors ${messageMode === m ? 'bg-[#4f46e5] text-white border-[#4f46e5]' : 'bg-white text-[#475569] border-[#e5e7eb] hover:bg-[#f9fafb]'}`}>
+                  <button key={m} type="button" aria-pressed={messageMode === m} onClick={() => { setMessageMode(m); setErrors({}) }}
+                    className={`flex-1 flex items-center justify-center gap-2 px-3 py-2.5 rounded-md text-sm font-medium border transition-colors ${messageMode === m ? 'bg-primary text-primary-foreground border-primary' : 'bg-card text-muted-foreground border-input hover:bg-accent'}`}>
                     {m === 'ai'     && <><Sparkles className="w-4 h-4" />AI</>}
                     {m === 'manual' && <><MessageSquare className="w-4 h-4" />Manual</>}
                     {m === 'none'   && <><BellOff className="w-4 h-4" />None</>}
@@ -173,72 +187,73 @@ export function VerifyLeadModal({ lead, onClose, onSuccess }: {
               </div>
 
               {messageMode === 'ai' && (
-                <div className="bg-indigo-50 border border-indigo-200 rounded-lg px-4 py-3 flex items-start gap-2">
-                  <Sparkles className="w-3.5 h-3.5 text-indigo-500 flex-shrink-0 mt-0.5" />
-                  <p className="text-xs text-indigo-800">The AI will craft a personalized opening message based on the lead's name, source, and any available context. It will be sent immediately via the best available channel.</p>
+                <div className="bg-accent border border-border rounded-md px-4 py-3 flex items-start gap-2">
+                  <Sparkles aria-hidden="true" className="w-3.5 h-3.5 text-primary flex-shrink-0 mt-0.5" />
+                  <p className="text-sm text-primary">The AI will craft a personalized opening message based on the lead's name, source, and any available context. It will be sent immediately via the best available channel.</p>
                 </div>
               )}
 
               {messageMode === 'none' && (
-                <div className="bg-slate-50 border border-slate-200 rounded-lg px-4 py-3 flex items-start gap-2">
-                  <BellOff className="w-3.5 h-3.5 text-slate-500 flex-shrink-0 mt-0.5" />
-                  <p className="text-xs text-slate-700">No message will be sent. The lead will be activated and the AI will remain ready for future responses.</p>
+                <div className="bg-background border border-border rounded-md px-4 py-3 flex items-start gap-2">
+                  <BellOff aria-hidden="true" className="w-3.5 h-3.5 text-muted-foreground flex-shrink-0 mt-0.5" />
+                  <p className="text-sm text-muted-foreground">No message will be sent. The lead will be activated and the AI will remain ready for future responses.</p>
                 </div>
               )}
 
               {messageMode === 'manual' && (
                 <div className="space-y-5">
-                  <div className="bg-amber-50 border border-amber-200 rounded-lg px-3 py-2.5 flex items-start gap-2">
-                    <Info className="w-3.5 h-3.5 text-amber-600 flex-shrink-0 mt-0.5" />
-                    <p className="text-xs text-amber-800">Write your own opening message. Fill out whichever channel(s) apply — only messages for contact methods the lead has provided will be sent.</p>
+                  <div className="bg-caution-subtle border border-border rounded-md px-3 py-2.5 flex items-start gap-2">
+                    <Info aria-hidden="true" className="w-3.5 h-3.5 text-caution flex-shrink-0 mt-0.5" />
+                    <p className="text-sm text-caution">Write your own opening message. Fill out whichever channel(s) apply — only messages for contact methods the lead has provided will be sent.</p>
                   </div>
 
                   {hasPhone && (
-                    <div className="border border-[#e5e7eb] rounded-xl p-4 space-y-3">
-                      <div className="flex items-center gap-2">
-                        <div className="w-5 h-5 rounded-full bg-emerald-100 flex items-center justify-center flex-shrink-0">
-                          <MessageSquare className="w-3 h-3 text-emerald-600" />
+                    <div className="border border-border rounded-lg p-4 space-y-3">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <div aria-hidden="true" className="w-5 h-5 rounded-sm bg-accent flex items-center justify-center flex-shrink-0">
+                          <MessageSquare className="w-3 h-3 text-primary" />
                         </div>
-                        <span className="text-xs font-semibold text-[#0f172a] uppercase tracking-wide">SMS Message</span>
-                        <span className="text-xs text-[#94a3b8]">— sent to {fullLead?.phone}</span>
+                        <span className="text-xs font-semibold uppercase tracking-wide">SMS Message</span>
+                        <span className="text-xs text-muted-foreground">— sent to {fullLead?.phone}</span>
                       </div>
-                      <textarea value={smsMessage} onChange={(e) => { setSmsMessage(e.target.value); setErrors((p) => ({ ...p, smsMessage: undefined })) }}
+                      <label htmlFor="verify-sms" className="crm-field-label">SMS message</label>
+                      <textarea id="verify-sms" aria-invalid={!!errors.smsMessage} aria-describedby={errors.smsMessage ? 'verify-sms-error' : undefined} value={smsMessage} onChange={(e) => { setSmsMessage(e.target.value); setErrors((p) => ({ ...p, smsMessage: undefined })) }}
                         rows={4} placeholder={`Hi ${firstName}! This is [Your Name] from [Brokerage]. I'd love to connect about your real estate needs — do you have a few minutes to chat?`}
-                        className={`w-full px-3 py-2 text-sm border rounded-lg outline-none transition-colors resize-y leading-relaxed ${errors.smsMessage ? 'border-red-400 bg-red-50' : 'border-[#e5e7eb] focus:border-[#4f46e5]'}`}
+                        className="crm-field resize-y leading-relaxed"
                         style={{ minHeight: '100px' }} />
-                      {errors.smsMessage && <p className="text-xs text-red-600 mt-1">{errors.smsMessage}</p>}
+                      {errors.smsMessage && <p id="verify-sms-error" className="text-xs text-destructive mt-1">{errors.smsMessage}</p>}
                     </div>
                   )}
 
                   {hasEmail && (
-                    <div className="border border-[#e5e7eb] rounded-xl p-4 space-y-3">
-                      <div className="flex items-center gap-2">
-                        <div className="w-5 h-5 rounded-full bg-blue-100 flex items-center justify-center flex-shrink-0">
-                          <MessageSquare className="w-3 h-3 text-blue-600" />
+                    <div className="border border-border rounded-lg p-4 space-y-3">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <div aria-hidden="true" className="w-5 h-5 rounded-sm bg-accent flex items-center justify-center flex-shrink-0">
+                          <MessageSquare className="w-3 h-3 text-primary" />
                         </div>
-                        <span className="text-xs font-semibold text-[#0f172a] uppercase tracking-wide">Email Message</span>
-                        <span className="text-xs text-[#94a3b8]">— sent to {fullLead?.email}</span>
+                        <span className="text-xs font-semibold uppercase tracking-wide">Email Message</span>
+                        <span className="text-xs text-muted-foreground">— sent to {fullLead?.email}</span>
                       </div>
                       <div>
-                        <label className="block text-xs font-medium text-[#475569] mb-1.5">Subject <span className="text-red-500">*</span></label>
-                        <input type="text" value={emailSubject} onChange={(e) => { setEmailSubject(e.target.value); setErrors((p) => ({ ...p, emailSubject: undefined })) }}
+                        <label htmlFor="verify-subject" className="crm-field-label">Subject *</label>
+                        <input id="verify-subject" aria-invalid={!!errors.emailSubject} aria-describedby={errors.emailSubject ? 'verify-subject-error' : undefined} type="text" value={emailSubject} onChange={(e) => { setEmailSubject(e.target.value); setErrors((p) => ({ ...p, emailSubject: undefined })) }}
                           placeholder="e.g. Following up on your real estate inquiry"
-                          className={`w-full px-3 py-2 text-sm border rounded-lg outline-none transition-colors ${errors.emailSubject ? 'border-red-400 bg-red-50' : 'border-[#e5e7eb] focus:border-[#4f46e5]'}`} />
-                        {errors.emailSubject && <p className="text-xs text-red-600 mt-1">{errors.emailSubject}</p>}
+                          className="crm-field" />
+                        {errors.emailSubject && <p id="verify-subject-error" className="text-xs text-destructive mt-1">{errors.emailSubject}</p>}
                       </div>
                       <div>
-                        <label className="block text-xs font-medium text-[#475569] mb-1.5">Body <span className="text-red-500">*</span></label>
-                        <textarea value={emailBody} onChange={(e) => { setEmailBody(e.target.value); setErrors((p) => ({ ...p, emailBody: undefined })) }}
+                        <label htmlFor="verify-body" className="crm-field-label">Email body *</label>
+                        <textarea id="verify-body" aria-invalid={!!errors.emailBody} aria-describedby={errors.emailBody ? 'verify-body-error' : undefined} value={emailBody} onChange={(e) => { setEmailBody(e.target.value); setErrors((p) => ({ ...p, emailBody: undefined })) }}
                           rows={5} placeholder={`Hi ${firstName},\n\nI came across your inquiry and would love to help with your real estate needs. When would be a good time to connect?\n\nBest,\n[Your Name]`}
-                          className={`w-full px-3 py-2 text-sm border rounded-lg outline-none transition-colors resize-y leading-relaxed ${errors.emailBody ? 'border-red-400 bg-red-50' : 'border-[#e5e7eb] focus:border-[#4f46e5]'}`}
+                          className="crm-field resize-y leading-relaxed"
                           style={{ minHeight: '140px' }} />
-                        {errors.emailBody && <p className="text-xs text-red-600 mt-1">{errors.emailBody}</p>}
+                        {errors.emailBody && <p id="verify-body-error" className="text-xs text-destructive mt-1">{errors.emailBody}</p>}
                       </div>
                     </div>
                   )}
 
                   {!hasPhone && !hasEmail && (
-                    <div className="bg-slate-50 border border-slate-200 rounded-lg px-4 py-3 text-xs text-slate-600">
+                    <div className="bg-background border border-border rounded-md px-4 py-3 text-sm text-muted-foreground">
                       No contact methods found for this lead. You can still verify them and reach out manually later.
                     </div>
                   )}
@@ -249,13 +264,13 @@ export function VerifyLeadModal({ lead, onClose, onSuccess }: {
         </div>
 
         {/* Footer */}
-        <div className="flex items-center justify-end gap-3 px-6 py-4 border-t border-[#e5e7eb] bg-[#f9fafb] rounded-b-2xl">
+        <div className="flex flex-wrap items-center justify-end gap-3 px-6 py-4 border-t border-border bg-background">
           <Button variant="secondary" onClick={onClose} disabled={submitting}>Cancel</Button>
           <Button variant="primary" onClick={handleVerify} loading={submitting} disabled={loadingLead || !!loadError} icon={<CheckCircle2 className="w-4 h-4" />}>
             {submitting ? 'Verifying...' : 'Verify Lead'}
           </Button>
         </div>
       </div>
-    </div>
+    </ModalFrame>
   )
 }

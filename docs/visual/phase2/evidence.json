@@ -1,0 +1,373 @@
+[
+  {
+    "url": "http://127.0.0.1:5175/dashboard",
+    "width": 390,
+    "height": 1000,
+    "client": 390,
+    "scroll": 390,
+    "main": [
+      380,
+      380
+    ],
+    "heading": "Overview",
+    "broken": 0,
+    "label": "SIMULATED-visual \u00b7 synthetic fixtures \u00b7 NOT E2E",
+    "dialog": [],
+    "file": "dashboard-final-390.png",
+    "state": "populated",
+    "classification": "SIMULATED-visual / NOT E2E",
+    "sha256": "2abb413c02024bb51f9daf20b1a5c1f41168a6e4592e31439d92bd0fa62ceb20",
+    "source_manifest": ".visual-audit/phase2-recovery-source.sha256"
+  },
+  {
+    "url": "http://127.0.0.1:5175/leads",
+    "width": 390,
+    "height": 1000,
+    "client": 390,
+    "scroll": 390,
+    "main": [
+      380,
+      380
+    ],
+    "heading": "Leads",
+    "broken": 0,
+    "label": "SIMULATED-visual \u00b7 synthetic fixtures \u00b7 NOT E2E",
+    "dialog": [],
+    "file": "leads-final-390.png",
+    "state": "populated",
+    "classification": "SIMULATED-visual / NOT E2E",
+    "sha256": "a915b292374bbbd75a90c6eb95572fd730fd87118d0e3cbf49f4d317cdfdb580",
+    "source_manifest": ".visual-audit/phase2-recovery-source.sha256"
+  },
+  {
+    "url": "http://127.0.0.1:5175/leads/801",
+    "width": 390,
+    "height": 1000,
+    "client": 390,
+    "scroll": 390,
+    "main": [
+      380,
+      380
+    ],
+    "heading": "SIMULATED \u2014 Alexandra Montgomery-Wellington, long contact",
+    "broken": 0,
+    "label": "SIMULATED-visual \u00b7 synthetic fixtures \u00b7 NOT E2E",
+    "dialog": [],
+    "file": "detail-final-390.png",
+    "state": "populated",
+    "classification": "SIMULATED-visual / NOT E2E",
+    "sha256": "f74861715e3befe5ca1ce3bef8f2f82dbfbd8ab74c0713faac50a65f7a9c25c1",
+    "source_manifest": ".visual-audit/phase2-recovery-source.sha256"
+  },
+  {
+    "url": "http://127.0.0.1:5175/properties",
+    "width": 390,
+    "height": 1000,
+    "client": 390,
+    "scroll": 390,
+    "main": [
+      380,
+      380
+    ],
+    "heading": "Properties",
+    "broken": 0,
+    "label": "SIMULATED-visual \u00b7 synthetic fixtures \u00b7 NOT E2E",
+    "dialog": [],
+    "file": "properties-final-390.png",
+    "state": "populated",
+    "classification": "SIMULATED-visual / NOT E2E",
+    "sha256": "257f3714b392bff8394b385e60851df778284c0c1431ae1e887d3d9511d92593",
+    "source_manifest": ".visual-audit/phase2-recovery-source.sha256"
+  },
+  {
+    "url": "http://127.0.0.1:5175/dashboard",
+    "width": 768,
+    "height": 1000,
+    "client": 768,
+    "scroll": 768,
+    "main": [
+      758,
+      758
+    ],
+    "heading": "Overview",
+    "broken": 0,
+    "label": "SIMULATED-visual \u00b7 synthetic fixtures \u00b7 NOT E2E",
+    "dialog": [],
+    "file": "dashboard-final-768.png",
+    "state": "populated",
+    "classification": "SIMULATED-visual / NOT E2E",
+    "sha256": "861d1541e5df9a0679c97c1e9a0256f5f1ff29240551a9da55beb4df4168442e",
+    "source_manifest": ".visual-audit/phase2-recovery-source.sha256"
+  },
+  {
+    "url": "http://127.0.0.1:5175/leads",
+    "width": 768,
+    "height": 1000,
+    "client": 768,
+    "scroll": 768,
+    "main": [
+      758,
+      758
+    ],
+    "heading": "Leads",
+    "broken": 0,
+    "label": "SIMULATED-visual \u00b7 synthetic fixtures \u00b7 NOT E2E",
+    "dialog": [],
+    "file": "leads-final-768.png",
+    "state": "populated",
+    "classification": "SIMULATED-visual / NOT E2E",
+    "sha256": "a4767ad65d96da5d06f8479984aefb900ee052e86444fe5837dd2cc386d9aba0",
+    "source_manifest": ".visual-audit/phase2-recovery-source.sha256"
+  },
+  {
+    "url": "http://127.0.0.1:5175/leads/801",
+    "width": 768,
+    "height": 1000,
+    "client": 768,
+    "scroll": 768,
+    "main": [
+      758,
+      758
+    ],
+    "heading": "SIMULATED \u2014 Alexandra Montgomery-Wellington, long contact",
+    "broken": 0,
+    "label": "SIMULATED-visual \u00b7 synthetic fixtures \u00b7 NOT E2E",
+    "dialog": [],
+    "file": "detail-final-768.png",
+    "state": "populated",
+    "classification": "SIMULATED-visual / NOT E2E",
+    "sha256": "e435ed1a7e8e9ba83a9b1d46ca26be4e46761675a73dc9668d9e65afa4d579ae",
+    "source_manifest": ".visual-audit/phase2-recovery-source.sha256"
+  },
+  {
+    "url": "http://127.0.0.1:5175/properties",
+    "width": 768,
+    "height": 1000,
+    "client": 768,
+    "scroll": 768,
+    "main": [
+      758,
+      758
+    ],
+    "heading": "Properties",
+    "broken": 0,
+    "label": "SIMULATED-visual \u00b7 synthetic fixtures \u00b7 NOT E2E",
+    "dialog": [],
+    "file": "properties-final-768.png",
+    "state": "populated",
+    "classification": "SIMULATED-visual / NOT E2E",
+    "sha256": "672c962e08ae779f0093a7285599c19b403f8b8cf4bdf4190203fef0586a95d8",
+    "source_manifest": ".visual-audit/phase2-recovery-source.sha256"
+  },
+  {
+    "url": "http://127.0.0.1:5175/dashboard",
+    "width": 1440,
+    "height": 1000,
+    "client": 1440,
+    "scroll": 1440,
+    "main": [
+      1200,
+      1200
+    ],
+    "heading": "Overview",
+    "broken": 0,
+    "label": "SIMULATED-visual \u00b7 synthetic fixtures \u00b7 NOT E2E",
+    "dialog": [],
+    "file": "dashboard-final-1440.png",
+    "state": "populated",
+    "classification": "SIMULATED-visual / NOT E2E",
+    "sha256": "6dcaadad01ec1304a702bd86d7f1a2940b9e28eb5b48b33b7a0358cffa34b8f0",
+    "source_manifest": ".visual-audit/phase2-recovery-source.sha256"
+  },
+  {
+    "url": "http://127.0.0.1:5175/leads",
+    "width": 1440,
+    "height": 1000,
+    "client": 1440,
+    "scroll": 1440,
+    "main": [
+      1200,
+      1200
+    ],
+    "heading": "Leads",
+    "broken": 0,
+    "label": "SIMULATED-visual \u00b7 synthetic fixtures \u00b7 NOT E2E",
+    "dialog": [],
+    "file": "leads-final-1440.png",
+    "state": "populated",
+    "classification": "SIMULATED-visual / NOT E2E",
+    "sha256": "a5ea9d4a6390b385c4a83f3d456824ad200efb6ca72c6ef0074bedb457de82ae",
+    "source_manifest": ".visual-audit/phase2-recovery-source.sha256"
+  },
+  {
+    "url": "http://127.0.0.1:5175/leads/801",
+    "width": 1440,
+    "height": 1000,
+    "client": 1440,
+    "scroll": 1440,
+    "main": [
+      1200,
+      1200
+    ],
+    "heading": "SIMULATED \u2014 Alexandra Montgomery-Wellington, long contact",
+    "broken": 0,
+    "label": "SIMULATED-visual \u00b7 synthetic fixtures \u00b7 NOT E2E",
+    "dialog": [],
+    "file": "detail-final-1440.png",
+    "state": "populated",
+    "classification": "SIMULATED-visual / NOT E2E",
+    "sha256": "4fcc8f5d344ebea9241fbac46fc0eeb221008d90d8a63076b70ecd9475d4108d",
+    "source_manifest": ".visual-audit/phase2-recovery-source.sha256"
+  },
+  {
+    "url": "http://127.0.0.1:5175/properties",
+    "width": 1440,
+    "height": 1000,
+    "client": 1440,
+    "scroll": 1440,
+    "main": [
+      1200,
+      1200
+    ],
+    "heading": "Properties",
+    "broken": 0,
+    "label": "SIMULATED-visual \u00b7 synthetic fixtures \u00b7 NOT E2E",
+    "dialog": [],
+    "file": "properties-final-1440.png",
+    "state": "populated",
+    "classification": "SIMULATED-visual / NOT E2E",
+    "sha256": "9428df20c19e32cb6c1b8a2d69e79d353cc5e258685a3a1c0a8f83107b069976",
+    "source_manifest": ".visual-audit/phase2-recovery-source.sha256"
+  },
+  {
+    "url": "http://127.0.0.1:5175/leads",
+    "width": 390,
+    "height": 1000,
+    "client": 390,
+    "scroll": 390,
+    "main": [
+      380,
+      380
+    ],
+    "heading": "Leads",
+    "broken": 0,
+    "label": "SIMULATED-visual \u00b7 synthetic fixtures \u00b7 NOT E2E",
+    "dialog": [
+      {
+        "client": 341,
+        "scroll": 341,
+        "child": 341
+      }
+    ],
+    "file": "dialog-final-390.png",
+    "state": "populated",
+    "classification": "SIMULATED-visual / NOT E2E",
+    "sha256": "2e589ffacf47b5c193a4cb0af5fe0533a9861b5f847d7f16ab4ae3f050660add",
+    "source_manifest": ".visual-audit/phase2-recovery-source.sha256"
+  },
+  {
+    "url": "http://127.0.0.1:5175/leads",
+    "width": 390,
+    "height": 1000,
+    "client": 390,
+    "scroll": 390,
+    "main": [
+      390,
+      390
+    ],
+    "heading": "Leads",
+    "broken": 0,
+    "label": "SIMULATED-visual \u00b7 synthetic fixtures \u00b7 NOT E2E",
+    "dialog": [],
+    "file": "leads-empty-390.png",
+    "state": "empty",
+    "classification": "SIMULATED-visual / NOT E2E",
+    "sha256": "dcf5c30b96bf6c1c0dbb1a50354a731a6f115dfce8adcc7ee51f935b297b35a1",
+    "source_manifest": ".visual-audit/phase2-recovery-source.sha256"
+  },
+  {
+    "url": "http://127.0.0.1:5175/dashboard",
+    "width": 390,
+    "height": 1000,
+    "client": 390,
+    "scroll": 390,
+    "main": [
+      380,
+      380
+    ],
+    "heading": "Overview",
+    "broken": 0,
+    "label": "SIMULATED-visual \u00b7 synthetic fixtures \u00b7 NOT E2E",
+    "dialog": [],
+    "file": "dashboard-loading-390.png",
+    "state": "loading",
+    "classification": "SIMULATED-visual / NOT E2E",
+    "sha256": "8c059281dbd3b5fe6d0ed32af7ec54468d8cfcc41b0f01ac125a7c6f7c888339",
+    "source_manifest": ".visual-audit/phase2-recovery-source.sha256"
+  },
+  {
+    "url": "http://127.0.0.1:5175/dashboard",
+    "width": 390,
+    "height": 1000,
+    "client": 390,
+    "scroll": 390,
+    "main": [
+      390,
+      390
+    ],
+    "broken": 0,
+    "label": "SIMULATED-visual \u00b7 synthetic fixtures \u00b7 NOT E2E",
+    "dialog": [],
+    "file": "dashboard-error-390.png",
+    "state": "error",
+    "classification": "SIMULATED-visual / NOT E2E",
+    "sha256": "9208cbff7ae274196af2c9f342bcf61570ae0333bca9b93396a7bae6e91343a2",
+    "source_manifest": ".visual-audit/phase2-recovery-source.sha256"
+  },
+  {
+    "url": "http://127.0.0.1:5175/properties",
+    "width": 390,
+    "height": 1000,
+    "client": 390,
+    "scroll": 390,
+    "main": [
+      390,
+      390
+    ],
+    "heading": "Properties",
+    "broken": 0,
+    "label": "SIMULATED-visual \u00b7 synthetic fixtures \u00b7 NOT E2E",
+    "dialog": [],
+    "file": "properties-table-390.png",
+    "state": "populated",
+    "classification": "SIMULATED-visual / NOT E2E",
+    "sha256": "e23c7d8b0ded3f09b603ad03b9e7352f17b397a021255aff439a8ff6f1dc2e5c",
+    "source_manifest": ".visual-audit/phase2-recovery-source.sha256"
+  },
+  {
+    "url": "http://127.0.0.1:5175/properties",
+    "width": 390,
+    "height": 1000,
+    "client": 390,
+    "scroll": 390,
+    "main": [
+      390,
+      390
+    ],
+    "heading": "Properties",
+    "broken": 0,
+    "label": "SIMULATED-visual \u00b7 synthetic fixtures \u00b7 NOT E2E",
+    "dialog": [
+      {
+        "client": 239,
+        "scroll": 239,
+        "child": 239
+      }
+    ],
+    "file": "navigation-open-390.png",
+    "state": "populated",
+    "classification": "SIMULATED-visual / NOT E2E",
+    "sha256": "d35c9089a60b979033ba6f9f6e384e06805baa1d9e974a4ccc2933f71ddf0722",
+    "source_manifest": ".visual-audit/phase2-recovery-source.sha256"
+  }
+]

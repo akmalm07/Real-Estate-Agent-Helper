@@ -15,6 +15,7 @@
  */
 
 import OpenAI from 'openai';
+import { lazyClient } from './testing/local-boundary.js';
 import { eq, and } from 'drizzle-orm';
 import { db } from '../db/index.js';
 import { properties, leads, conversations } from '../db/schema.js';
@@ -41,7 +42,7 @@ import {
   computeConfidence,
 } from './lead-detection/confidence-scorer.js';
 
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+const openai = lazyClient(() => new OpenAI({ apiKey: process.env.OPENAI_API_KEY }));
 
 /*
 |--------------------------------------------------------------------------

@@ -1,3 +1,4 @@
+import { useId } from 'react'
 import { cn } from '../../lib/utils'
 import type { LucideIcon } from 'lucide-react'
 
@@ -6,27 +7,35 @@ interface InputProps extends React.InputHTMLAttributes<HTMLInputElement> {
   error?: string
 }
 
-export function Input({ icon: Icon, error, className, ...props }: InputProps) {
+export function Input({ icon: Icon, error, className, id, 'aria-describedby': describedBy, ...props }: InputProps) {
+  const generatedId = useId()
+  const inputId = id ?? generatedId
+  const errorId = `${inputId}-error`
+  const description = [describedBy, error ? errorId : undefined].filter(Boolean).join(' ') || undefined
+
   return (
     <div className="relative">
       {Icon && (
-        <div className="absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none">
-          <Icon className="w-4 h-4 text-[#94a3b8]" />
+        <div aria-hidden="true" className="absolute left-3 top-[22px] -translate-y-1/2 pointer-events-none">
+          <Icon className="w-4 h-4 text-muted-foreground" />
         </div>
       )}
       <input
         className={cn(
-          'w-full bg-white border border-[#e5e7eb] rounded-lg text-sm text-[#0f172a] placeholder-[#94a3b8]',
+          'w-full min-h-11 bg-card border border-input rounded-md text-base sm:text-sm text-foreground placeholder:text-muted-foreground',
           'px-3 py-2 outline-none transition-colors',
-          'focus:border-[#4f46e5] focus:ring-2 focus:ring-[#eef2ff]',
-          'disabled:bg-[#f9fafb] disabled:cursor-not-allowed',
+          'focus:border-primary focus:ring-2 focus:ring-ring focus:ring-offset-1',
+          'disabled:bg-muted disabled:text-muted-foreground disabled:cursor-not-allowed',
           Icon && 'pl-9',
-          error && 'border-red-400 focus:border-red-400 focus:ring-red-50',
+          error && 'border-destructive focus:border-destructive focus:ring-destructive',
           className
         )}
         {...props}
+        id={inputId}
+        aria-invalid={error ? true : props['aria-invalid']}
+        aria-describedby={description}
       />
-      {error && <p className="mt-1 text-xs text-red-500">{error}</p>}
+      {error && <p id={errorId} className="mt-1 text-sm text-destructive">{error}</p>}
     </div>
   )
 }
@@ -38,9 +47,10 @@ export function Textarea({
   return (
     <textarea
       className={cn(
-        'w-full bg-white border border-[#e5e7eb] rounded-lg text-sm text-[#0f172a] placeholder-[#94a3b8]',
+        'w-full min-h-11 bg-card border border-input rounded-md text-base sm:text-sm text-foreground placeholder:text-muted-foreground',
         'px-3 py-2 outline-none transition-colors resize-none',
-        'focus:border-[#4f46e5] focus:ring-2 focus:ring-[#eef2ff]',
+        'focus:border-primary focus:ring-2 focus:ring-ring focus:ring-offset-1',
+        'disabled:bg-muted disabled:text-muted-foreground disabled:cursor-not-allowed',
         className
       )}
       {...props}

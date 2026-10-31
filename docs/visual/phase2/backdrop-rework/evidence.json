@@ -1,0 +1,51 @@
+{
+  "base_commit": "0ec8e0a0994a23d627a1bb94081f55a8110f1626",
+  "candidate_binding": "Exact repair commit supplied in native re-review handoff; source manifest binds gates/browser evidence without self-reference.",
+  "classification": "SIMULATED-visual / NOT E2E",
+  "source_manifest": "docs/visual/phase2/backdrop-rework/source.sha256",
+  "source_manifest_sha256": "d165d83ff451c4f4b79a16bbded5b575fdda74ddfe38b910e83e5125e38ec2f5",
+  "source_count": 63,
+  "historical_baseline": "docs/visual/phase2/evidence.json and original source.sha256 remain pre-fix for0ec8e0a,18 PNGs unchanged.",
+  "screenshots": [
+    {
+      "path": "docs/visual/phase2/backdrop-rework/navigation-open-390.png",
+      "sha256": "e5581199408f8a9d43738dd13555fd8b7269e051d8b6f01dcf93b4a95bda70ea",
+      "classification": "SIMULATED-visual / NOT E2E",
+      "inspected": true
+    },
+    {
+      "path": "docs/visual/phase2/backdrop-rework/navigation-dismissed-390.png",
+      "sha256": "dbb4a534b6f115368acb0a7e02986d999ad5b7a960e42dee702bba23e600c703",
+      "classification": "SIMULATED-visual / NOT E2E",
+      "inspected": true
+    },
+    {
+      "path": "docs/visual/phase2/backdrop-rework/dialog-validation-390.png",
+      "sha256": "9ca76f58ceeab6c0fdb0d7db4f2104b7a736f2ec17c4bae2cf3f55148948b630",
+      "classification": "SIMULATED-visual / NOT E2E",
+      "inspected": true
+    }
+  ],
+  "native_records": [
+    "native-dismissal.json",
+    "native-modal.json"
+  ],
+  "regression": {
+    "red": {
+      "command": "npm test -- --test-name-pattern=actual shell backdrop stays clickable outside drawer scope",
+      "result": "49 executed,48 pass,1 expected inert assertion failure;exit1 (filter placed after glob)",
+      "log_sha256": "1f485a8868bf2c7ac03fdab7559a84f9ae20ef623464a635154a22be36ffb2b8"
+    },
+    "green": {
+      "focused": "1/1 pass,exit0",
+      "full": "49/49 pass,exit0",
+      "log_sha256": "834a8463aabfac5c718f27d7478ce552a6e9a9406869fae12945dabf8421800b"
+    }
+  },
+  "limitations": [
+    "No DB/auth/provider/final E2E acceptance",
+    "Disabled focused submit transiently blurs to body; inert background retained; subsequent outside/focus attempt recaptured",
+    "No push/PR/merge/deployment; phase3 gated",
+    "Earlier probes corrected: coordinate helper,selector quoting,modal ancestor inert assumption,offscreen submit"
+  ]
+}

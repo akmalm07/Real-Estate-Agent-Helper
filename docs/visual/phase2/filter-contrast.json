@@ -1,0 +1,32 @@
+{
+  "filter": "1 of 3 properties",
+  "search": "1 of 3 properties",
+  "reset": "3 of 3 properties",
+  "pagination": [],
+  "contrast": [
+    {
+      "name": "ink",
+      "a": "rgb(34,47,42)",
+      "b": "rgb(247,245,239)",
+      "ratio": 12.772865496362286
+    },
+    {
+      "name": "muted",
+      "a": "rgb(88,99,90)",
+      "b": "rgb(247,245,239)",
+      "ratio": 5.754521502312577
+    },
+    {
+      "name": "primary",
+      "a": "rgb(255,254,250)",
+      "b": "rgb(38,79,62)",
+      "ratio": 9.165545395509604
+    },
+    {
+      "name": "error",
+      "a": "rgb(157,48,39)",
+      "b": "rgb(253,239,234)",
+      "ratio": 6.484128642646923
+    }
+  ]
+}

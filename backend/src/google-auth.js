@@ -12,7 +12,7 @@ const clientId = process.env.GOOGLE_CLIENT_ID;
 const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
 const redirectUri = process.env.GOOGLE_REDIRECT_URI;
 
-const SCOPES = process.env.GOOGLE_SCOPES.split(',');
+const SCOPES = (process.env.GOOGLE_SCOPES || '').split(',').filter(Boolean);
 
 // The frontend origin — used for post-OAuth redirects back into the SPA.
 const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173';

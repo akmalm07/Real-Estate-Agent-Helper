@@ -9,4 +9,4 @@ ALTER TABLE properties
 
 -- Also make source nullable-safe with a default if not already set
 ALTER TABLE properties
-  ALTER COLUMN property_source SET DEFAULT 'unknown';
+  ALTER COLUMN property_source SET DEFAULT 'listing';

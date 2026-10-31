@@ -1,0 +1,49 @@
+{
+  "answers": {
+    "D001.goal": {
+      "answer": "User authorized cloning GitHub.com/akmalm07/real-estate-agent-helper, repairing broken existing functionality, testing the entire accessible application, and publishing a PR; no merge.",
+      "at": "2026-10-29T18:39:12.729026+00:00"
+    },
+    "D002.integrations": {
+      "answer": "User requires preserving the existing architecture and Google Cloud/Google services. No provider/framework migration or cloud deployment is authorized.",
+      "at": "2026-10-29T18:39:12.802670+00:00"
+    },
+    "D003.simulation": {
+      "answer": "User reports unavailable email and phone access; create a simulated local environment for email pushes, capture outbound messages locally, and distinctly report simulated versus untested live-provider features. Never send real emails/SMS/calls.",
+      "at": "2026-10-29T18:39:12.873850+00:00"
+    },
+    "D004.delivery": {
+      "answer": "Dedicated project workspace /root/factory/projects/real-estate-agent-helper and board real-estate-agent-helper; feature branch fix/functional-repair; independent mvp-reviewer verification; PR targets existing main and remains unmerged.",
+      "at": "2026-10-29T18:39:12.945006+00:00"
+    },
+    "D005.blockers": {
+      "answer": "User asks to resolve challenges when blocked and message them for problems. Continue safe independent checks; ask only for necessary missing access, blocking product ambiguity or costly/irreversible actions. No production changes or spending authorization.",
+      "at": "2026-10-29T18:39:13.015225+00:00"
+    },
+    "D006.visual-expansion": {
+      "answer": "User explicitly requested fixing the design/frontend to avoid a generic vibe-coded appearance, adding pictures and more creativity. This authorizes original frontend visual redesign, not new product features, backend architecture changes or paid assets. Existing functional repairs and Google preservation remain required.",
+      "at": "2026-10-29T19:26:05.399119+00:00"
+    },
+    "D007.creative-default": {
+      "answer": "Manager-selected adjustable implementation default, not a user-confirmed brand preference: editorial real-estate/property-journal aesthetic, purposeful licensed architectural photography, warm neutrals/deep ink/forest, deliberate serif/sans hierarchy, asymmetrical public composition and compact operable CRM. Preserve genuine data, all controls and accessible responsive states; never assign stock photos to real listings as if authentic.",
+      "at": "2026-10-29T19:26:05.485315+00:00"
+    },
+    "D008.image-provenance-recovery": {
+      "answer": "Manager-selected asset recovery, not a user-specified image: original Unsplash photo/source mapping could not be verified (401), so do not publish it. Verified free editorial alternative is Wikimedia Commons File:Campus_North_Residential_Commons.jpg by Mx. Granger, repository metadata CC0 and primary CC0 deed both HTTP200. Use optimized local derivative with truthful editorial/not-listing/no-affiliation caption; preserve rejected-asset history and final crop/fallback checks. This fits existing free-image scope without new features/spending.",
+      "at": "2026-10-29T20:34:44.329985+00:00"
+    },
+    "D009.subtle-tech-refinement": {
+      "answer": "User says they like the redesign and explicitly requests making it a bit techy, not too much, while keeping its harmony. Preserve the current coherent warm/editorial/photos direction and make a restrained polish, not a redesign restart. Concrete typography/metadata/numeral/border/status/feedback choices are manager-selected implementation details, not a user-requested new brand, feature set or dark/neon theme.",
+      "at": "2026-10-30T01:53:08.949201+00:00"
+    },
+    "D010.interim-pr-readme-demo-cleanup": {
+      "answer": "User explicitly requested: Can you just push the PR and update the read me, as well as adding a video demo in the readme, and delete any unnecessary files? Authorizes interim PR publication, accurate README, real playable demo and bounded verified unnecessary-file cleanup. Not authorization to merge, deploy, discard unfinished work, waive full-app acceptance or delete recovery evidence.",
+      "at": "2026-10-30T23:29:00.312819+00:00"
+    },
+    "D011.interim-publication-default": {
+      "answer": "Manager-selected safe delivery default, not a separate user specification: DRAFT PR of reviewed commit 0ba82333c58751f6cebb1ffbadce53b0227afb7e plus independently reviewed README/demo/cleanup and authority amendment, remote fix/functional-repair into main. Use isolated linked worktree/local docs/reviewed-demo-pr branch; preserve and exclude dirty auth/cache candidate and all evidence. Explicitly label fixture-driven video and remaining functional work. Preserve original final acceptance graph; later final publication updates same PR.",
+      "at": "2026-10-30T23:29:00.397785+00:00"
+    }
+  },
+  "last_updated": "2026-10-30T23:29:00.397835+00:00"
+}

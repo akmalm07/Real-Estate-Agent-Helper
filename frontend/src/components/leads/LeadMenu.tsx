@@ -1,11 +1,13 @@
 import { useEffect, useRef, useState } from 'react'
 import { MoreVertical, Pencil, Trash2 } from 'lucide-react'
 
-export function LeadMenu({ onEdit, onDelete }: { onEdit: () => void; onDelete: () => void }) {
+export function LeadMenu({ onEdit, onDelete, label = 'Lead actions' }: { onEdit: () => void; onDelete: () => void; label?: string }) {
   const [open, setOpen] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
+  const trigger = useRef<HTMLButtonElement>(null)
 
   useEffect(() => {
+    if (typeof document === 'undefined') return
     function handler(e: MouseEvent) {
       if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
     }
@@ -13,25 +15,34 @@ export function LeadMenu({ onEdit, onDelete }: { onEdit: () => void; onDelete: (
     return () => document.removeEventListener('mousedown', handler)
   }, [])
 
+  useEffect(() => {
+    if (open) ref.current?.querySelector<HTMLButtonElement>('[data-menu-actions] button')?.focus()
+  }, [open])
+
+  const close = () => { setOpen(false); trigger.current?.focus() }
+
   return (
-    <div ref={ref} className="relative" onClick={(e) => e.stopPropagation()}>
+    <div ref={ref} className="relative" onClick={(e) => e.stopPropagation()}
+      onKeyDown={(e) => { if (e.key === 'Escape') { e.stopPropagation(); close() } }}
+      onBlur={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node)) setOpen(false) }}>
       <button
+        ref={trigger} aria-label={label} aria-expanded={open}
         onClick={() => setOpen((o) => !o)}
-        className="w-7 h-7 flex items-center justify-center rounded-lg text-[#94a3b8] hover:bg-[#f1f5f9] hover:text-[#475569] transition-colors"
+        className="min-w-11 min-h-11 flex items-center justify-center gap-1 rounded-md text-primary hover:bg-accent transition-colors px-2 text-xs"
       >
-        <MoreVertical className="w-4 h-4" />
+        <MoreVertical aria-hidden="true" className="w-4 h-4" /> Actions
       </button>
       {open && (
-        <div className="absolute right-0 mt-1 w-36 bg-white border border-[#e5e7eb] rounded-lg shadow-lg z-30 py-1 overflow-hidden">
+        <div data-menu-actions className="absolute right-0 bottom-full mb-1 w-36 bg-card border border-border rounded-lg shadow-dropdown z-30 py-1">
           <button
-            onClick={() => { setOpen(false); onEdit() }}
-            className="w-full flex items-center gap-2 px-3 py-2 text-sm text-[#475569] hover:bg-[#f9fafb] transition-colors"
+            onClick={() => { close(); onEdit() }}
+            className="w-full flex items-center gap-2 px-3 py-2 text-sm text-foreground hover:bg-accent transition-colors"
           >
             <Pencil className="w-3.5 h-3.5" /> Edit
           </button>
           <button
-            onClick={() => { setOpen(false); onDelete() }}
-            className="w-full flex items-center gap-2 px-3 py-2 text-sm text-red-600 hover:bg-red-50 transition-colors"
+            onClick={() => { close(); onDelete() }}
+            className="w-full flex items-center gap-2 px-3 py-2 text-sm text-destructive hover:bg-destructive-subtle transition-colors"
           >
             <Trash2 className="w-3.5 h-3.5" /> Delete
           </button>

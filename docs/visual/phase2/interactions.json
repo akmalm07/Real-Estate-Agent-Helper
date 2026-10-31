@@ -1,0 +1,86 @@
+{
+  "drawerOpen": {
+    "expanded": "true",
+    "focus": "Close navigation",
+    "mainInert": true
+  },
+  "shiftTab": "Logout",
+  "escape": {
+    "focus": "Open navigation",
+    "inert": true,
+    "expanded": "false"
+  },
+  "dialogFocus": "Close lead dialog",
+  "dialogWrap": "Add Lead",
+  "dialogWrapForward": "Close lead dialog",
+  "validation": [
+    {
+      "id": "lead-name",
+      "description": "lead-name-error",
+      "text": "Full name is required."
+    },
+    {
+      "id": "lead-email",
+      "description": "lead-contact-error",
+      "text": "At least one contact method (email or phone) is required."
+    },
+    {
+      "id": "lead-phone",
+      "description": "lead-contact-error",
+      "text": "At least one contact method (email or phone) is required."
+    },
+    {
+      "id": "lead-referrer",
+      "description": "lead-referrer-error",
+      "text": "Referrer name is required for referral leads."
+    }
+  ],
+  "requests": [
+    {
+      "path": "/api/dashboard",
+      "method": "GET",
+      "body": null
+    },
+    {
+      "path": "/api/properties",
+      "method": "GET",
+      "body": null
+    },
+    {
+      "path": "/api/messages",
+      "method": "GET",
+      "body": null
+    },
+    {
+      "path": "/api/auth/me",
+      "method": "GET",
+      "body": null
+    },
+    {
+      "path": "/api/dashboard",
+      "method": "GET",
+      "body": null
+    },
+    {
+      "path": "/api/properties",
+      "method": "GET",
+      "body": null
+    },
+    {
+      "path": "/api/messages",
+      "method": "GET",
+      "body": null
+    },
+    {
+      "path": "/api/auth/me",
+      "method": "GET",
+      "body": null
+    }
+  ],
+  "modalWidths": {
+    "client": 341,
+    "scroll": 341,
+    "child": 341
+  },
+  "returnFocus": "Refer Lead"
+}

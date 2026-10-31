@@ -1,0 +1,178 @@
+[
+  {
+    "check": "reduced-loading-390",
+    "data": {
+      "reduce": true,
+      "animations": [
+        "none",
+        "none",
+        "none",
+        "none",
+        "none",
+        "none",
+        "none",
+        "none",
+        "none",
+        "none",
+        "none",
+        "none",
+        "none",
+        "none",
+        "none"
+      ]
+    }
+  },
+  {
+    "check": "scroll-/privacy-390",
+    "data": {
+      "scrollY": 1190,
+      "client": 375,
+      "scroll": 375,
+      "body": 2190,
+      "links": []
+    }
+  },
+  {
+    "check": "scroll-/terms-390",
+    "data": {
+      "scrollY": 952,
+      "client": 375,
+      "scroll": 375,
+      "body": 1952,
+      "links": []
+    }
+  },
+  {
+    "check": "scroll-/-390",
+    "data": {
+      "scrollY": 932,
+      "client": 375,
+      "scroll": 375,
+      "body": 1932,
+      "links": []
+    }
+  },
+  {
+    "check": "onboard-tab-390",
+    "data": {
+      "text": "Connect Gmail",
+      "outline": "rgb(38, 79, 62) solid 2px",
+      "progress": "1"
+    }
+  },
+  {
+    "check": "onboard-step-focus-390",
+    "data": {
+      "tag": "H2",
+      "id": "",
+      "continueDisabled": true,
+      "labels": [
+        {
+          "id": "onboard-brokerage",
+          "labels": 1
+        },
+        {
+          "id": "onboard-market",
+          "labels": 1
+        }
+      ]
+    }
+  },
+  {
+    "check": "fallback-390",
+    "data": {
+      "images": 0,
+      "text": "Skip to content\nRealCRM\nThe workspace\nSign in\n\u2197\n\nREAL ESTATE, IN CONTEXT\n\nKeep the people.\nKeep the context.\n\nBehind every property is a conversation. Keep lead details, notes and property records together, so you can pick up where you left off.\n\nSign in to RealCRM\n\u2197\nExplore the workspace\n\u2193\n\nNew here? Choose Sign Up on the sign-in page.\n\nIN PERSPECTIVE\nARCHITECTURE\n\nARCHITECTURE / EDITORIAL\n\nRoom for a different perspective.\n\nThe photograph is unavailable. Your workspace is still a sign-in away.\nCampus North Residential Commons, University of Chicago.\nMx. Granger / Wikimedia Commons / CC0.\nEditorial photograph. Not a property listing. No affiliation or endorsement.\n\nTHE WORKSPACE\n\nA place for the details that matter.\n\nStart with the dashboard for an overview, then move into the people, properties and conversations behind your day.\n\nOpen your workspace\n\u2197\nKnow the person\nKeep contact information, lead details, status and notes in one record.\nKeep the property in view\nReview and manage property records alongside your lead work.\nReturn to the conversation\nRead conversations and refer back to the details before your next reply.\n\nRealCRM\nPeople. Properties. Conversations.\n\nTerms of Service\nPrivacy Policy\nSIMULATED-visual \u00b7 synthetic fixtures \u00b7 NOT E2E",
+      "client": 375,
+      "scroll": 375
+    }
+  },
+  {
+    "check": "reduced-loading-1440",
+    "data": {
+      "reduce": true,
+      "animations": [
+        "none",
+        "none",
+        "none",
+        "none",
+        "none",
+        "none",
+        "none",
+        "none",
+        "none",
+        "none",
+        "none",
+        "none",
+        "none",
+        "none",
+        "none"
+      ]
+    }
+  },
+  {
+    "check": "scroll-/privacy-1440",
+    "data": {
+      "scrollY": 696,
+      "client": 1425,
+      "scroll": 1425,
+      "body": 1696,
+      "links": []
+    }
+  },
+  {
+    "check": "scroll-/terms-1440",
+    "data": {
+      "scrollY": 459,
+      "client": 1425,
+      "scroll": 1425,
+      "body": 1459,
+      "links": []
+    }
+  },
+  {
+    "check": "scroll-/-1440",
+    "data": {
+      "scrollY": 392,
+      "client": 1425,
+      "scroll": 1425,
+      "body": 1392,
+      "links": []
+    }
+  },
+  {
+    "check": "onboard-tab-1440",
+    "data": {
+      "text": "Connect Gmail",
+      "outline": "rgb(38, 79, 62) solid 2px",
+      "progress": "1"
+    }
+  },
+  {
+    "check": "onboard-step-focus-1440",
+    "data": {
+      "tag": "H2",
+      "id": "",
+      "continueDisabled": true,
+      "labels": [
+        {
+          "id": "onboard-brokerage",
+          "labels": 1
+        },
+        {
+          "id": "onboard-market",
+          "labels": 1
+        }
+      ]
+    }
+  },
+  {
+    "check": "fallback-1440",
+    "data": {
+      "images": 0,
+      "text": "Skip to content\nRealCRM\n\nA workspace for real estate\n\nThe workspace\nSign in\n\u2197\n\nREAL ESTATE, IN CONTEXT\n\nKeep the people.\nKeep the context.\n\nBehind every property is a conversation. Keep lead details, notes and property records together, so you can pick up where you left off.\n\nSign in to RealCRM\n\u2197\nExplore the workspace\n\u2193\n\nNew here? Choose Sign Up on the sign-in page.\n\nIN PERSPECTIVE\nARCHITECTURE\n\nARCHITECTURE / EDITORIAL\n\nRoom for a different perspective.\n\nThe photograph is unavailable. Your workspace is still a sign-in away.\nCampus North Residential Commons, University of Chicago.\nMx. Granger / Wikimedia Commons / CC0.\nEditorial photograph. Not a property listing. No affiliation or endorsement.\n\nTHE WORKSPACE\n\nA place for the details that matter.\n\nStart with the dashboard for an overview, then move into the people, properties and conversations behind your day.\n\nOpen your workspace\n\u2197\nKnow the person\nKeep contact information, lead details, status and notes in one record.\nKeep the property in view\nReview and manage property records alongside your lead work.\nReturn to the conversation\nRead conversations and refer back to the details before your next reply.\n\nRealCRM\nPeople. Properties. Conversations.\n\nTerms of Service\nPrivacy Policy\nSIMULATED-visual \u00b7 synthetic fixtures \u00b7 NOT E2E",
+      "client": 1425,
+      "scroll": 1425
+    }
+  }
+]

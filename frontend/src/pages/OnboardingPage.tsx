@@ -1,4 +1,5 @@
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
+import { Link } from 'react-router-dom'
 import {
   Mail,
   Building2,
@@ -66,7 +67,6 @@ const TOTAL_STEPS = 6
 */
 
 function StepHeader({
-  icon,
   title,
   subtitle,
 }: {
@@ -75,12 +75,9 @@ function StepHeader({
   subtitle?: string
 }) {
   return (
-    <div className="mb-8 text-center">
-      <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-indigo-100 text-indigo-600">
-        {icon}
-      </div>
-      <h2 className="text-2xl font-bold text-gray-900">{title}</h2>
-      {subtitle && <p className="mt-2 text-sm text-gray-500">{subtitle}</p>}
+    <div className="mb-8">
+      <h2 tabIndex={-1} className="text-2xl font-semibold text-foreground tracking-tight">{title}</h2>
+      {subtitle && <p className="mt-2 text-sm text-muted-foreground">{subtitle}</p>}
     </div>
   )
 }
@@ -102,13 +99,14 @@ function OptionCard({
     <button
       type="button"
       disabled={disabled}
+      aria-pressed={selected}
       onClick={onClick}
       className={cn(
-        'w-full rounded-xl border-2 px-4 py-3 text-left text-sm font-medium transition-all',
+        'w-full rounded-md border px-4 py-3 text-left text-sm font-medium transition-colors',
         selected
-          ? 'border-indigo-500 bg-indigo-50 text-indigo-700'
-          : 'border-gray-200 bg-white text-gray-700 hover:border-indigo-300 hover:bg-indigo-50/40',
-        disabled && 'cursor-not-allowed opacity-50',
+          ? 'border-primary bg-accent text-primary'
+          : 'border-input bg-card text-foreground hover:border-primary hover:bg-accent',
+        disabled && 'cursor-not-allowed text-muted-foreground bg-muted',
         className,
       )}
     >
@@ -121,15 +119,15 @@ function ProgressBar({ step, total }: { step: number; total: number }) {
   const pct = Math.round((step / (total - 1)) * 100)
   return (
     <div className="mb-8">
-      <div className="mb-1 flex justify-between text-xs text-gray-400">
+      <div className="mb-2 flex justify-between utility-label">
         <span>
           Step {step + 1} of {total}
         </span>
         <span>{pct}%</span>
       </div>
-      <div className="h-1.5 w-full overflow-hidden rounded-full bg-gray-200">
+      <div role="progressbar" aria-label="Setup progress" aria-valuemin={1} aria-valuemax={total} aria-valuenow={step + 1} aria-valuetext={`Step ${step + 1} of ${total}`} className="h-1 w-full overflow-hidden bg-muted">
         <div
-          className="h-full rounded-full bg-indigo-500 transition-all duration-500"
+          className="h-full bg-primary"
           style={{ width: `${pct}%` }}
         />
       </div>
@@ -147,6 +145,8 @@ export function OnboardingPage() {
   const { refreshUser, user } = useAuth()
 
   const [step, setStep] = useState(0)
+  const stepHeading = useRef<HTMLDivElement>(null)
+  useEffect(() => { stepHeading.current?.querySelector('h2')?.focus() }, [step])
   const [data, setData] = useState<OnboardingData>(INITIAL)
   const [gmailConnected, setGmailConnected] = useState(false)
   const [saving, setSaving] = useState(false)
@@ -168,7 +168,7 @@ export function OnboardingPage() {
         if (!res.ok) return
 
         const json = await res.json()
-        setGmailConnected(json.gmailConnected ?? false)
+        setGmailConnected(json.gmailConnected === true)
       } catch {
         // silently ignore — the user can still complete onboarding
       }
@@ -247,15 +247,15 @@ export function OnboardingPage() {
 
   // ── Step 0: Gmail Connect ─────────────────────────────────────────────────
   function renderGmailStep() {
-    if (!userIsManual || gmailConnected) {
+    if (gmailConnected) {
       return (
-        <div className="text-center">
+        <div>
           <StepHeader
             icon={<Mail size={28} />}
             title="Welcome aboard!"
             subtitle="Your Gmail account is already connected. Let's set up your profile."
           />
-          <div className="mb-6 flex items-center justify-center gap-2 rounded-xl border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-700">
+          <div className="mb-6 flex items-center gap-2 rounded-md border border-primary bg-accent px-4 py-3 text-sm text-primary">
             <CheckCircle2 size={18} />
             Gmail connected
           </div>
@@ -264,32 +264,31 @@ export function OnboardingPage() {
     }
 
     return (
-      <div className="text-center">
+      <div>
         <StepHeader
           icon={<Mail size={28} />}
           title="Connect your Gmail"
           subtitle="We need access to your Gmail inbox to automatically detect and respond to leads."
         />
-        <p className="mb-6 text-sm text-gray-500">
+        <p className="mb-6 text-sm text-muted-foreground">
           Connecting Gmail lets the AI read incoming lead emails and send replies on your behalf.
-          Your data is never shared.
         </p>
         {gmailConnected ? (
-          <div className="mb-6 flex items-center justify-center gap-2 rounded-xl border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-700">
+          <div className="mb-6 flex items-center gap-2 rounded-md border border-primary bg-accent px-4 py-3 text-sm text-primary">
             <CheckCircle2 size={18} />
             Gmail connected
           </div>
         ) : (
           <a
             href={`${BACKEND_URL}auth/google/signup`}
-            className="inline-flex items-center gap-2 rounded-xl bg-indigo-600 px-6 py-3 text-sm font-semibold text-white shadow hover:bg-indigo-700 transition-colors"
+            className="journal-primary-link inline-flex items-center gap-2"
           >
             <Mail size={18} />
             Connect Gmail
           </a>
         )}
-        <p className="mt-4 text-xs text-gray-400">
-          You can skip this step and connect later in Settings.
+        <p className="mt-4 text-sm text-muted-foreground">
+          Gmail connection is optional for this setup. You can continue without connecting.
         </p>
       </div>
     )
@@ -307,10 +306,11 @@ export function OnboardingPage() {
 
         <div className="space-y-5">
           <div>
-            <label className="mb-1.5 block text-sm font-medium text-gray-700">
+            <label htmlFor="onboard-brokerage" className="crm-field-label">
               What's your brokerage?
             </label>
             <Input
+              id="onboard-brokerage"
               type="text"
               placeholder="e.g. Keller Williams, RE/MAX…"
               value={data.brokerage}
@@ -319,11 +319,12 @@ export function OnboardingPage() {
           </div>
 
           <div>
-            <label className="mb-1.5 block text-sm font-medium text-gray-700">
+            <label htmlFor="onboard-market" className="crm-field-label">
               <MapPin size={14} className="mr-1 inline" />
               Primary market
             </label>
             <Input
+              id="onboard-market"
               type="text"
               placeholder="City, state, or ZIP code"
               icon={MapPin}
@@ -333,9 +334,9 @@ export function OnboardingPage() {
           </div>
 
           <div>
-            <label className="mb-2 block text-sm font-medium text-gray-700">
+            <p className="crm-field-label">
               How many leads do you handle per month?
-            </label>
+            </p>
             <div className="grid grid-cols-2 gap-2">
               {(
                 [
@@ -391,8 +392,8 @@ export function OnboardingPage() {
                   className={cn(
                     'flex h-4 w-4 shrink-0 items-center justify-center rounded border',
                     data.leadSources.includes(value)
-                      ? 'border-indigo-500 bg-indigo-500'
-                      : 'border-gray-300 bg-white',
+                      ? 'border-primary bg-primary'
+                      : 'border-input bg-card',
                   )}
                 >
                   {data.leadSources.includes(value) && (
@@ -414,8 +415,8 @@ export function OnboardingPage() {
                   className={cn(
                     'flex h-4 w-4 shrink-0 items-center justify-center rounded border',
                     data.leadSources.includes('other')
-                      ? 'border-indigo-500 bg-indigo-500'
-                      : 'border-gray-300 bg-white',
+                      ? 'border-primary bg-primary'
+                      : 'border-input bg-card',
                   )}
                 >
                   {data.leadSources.includes('other') && (
@@ -427,7 +428,9 @@ export function OnboardingPage() {
             </OptionCard>
             {data.leadSources.includes('other') && (
               <div className="mt-2">
+                <label htmlFor="onboard-source-other" className="crm-field-label">Other lead source</label>
                 <Input
+                  id="onboard-source-other"
                   type="text"
                   maxLength={50}
                   placeholder="Describe your source (max 50 chars)"
@@ -452,7 +455,7 @@ export function OnboardingPage() {
       {
         value: 'phone',
         label: 'Phone call first',
-        note: '📞 Automated phone calls are coming soon — not yet supported.',
+        note: 'Automated phone calls are coming soon — not yet supported.',
       },
       { value: 'mix', label: 'Mix of all three' },
     ]
@@ -475,18 +478,18 @@ export function OnboardingPage() {
               >
                 <span className="flex items-center gap-2">
                   {value === 'phone' && (
-                    <Phone size={14} className="shrink-0 text-gray-400" />
+                    <Phone size={14} className="shrink-0 text-muted-foreground" />
                   )}
                   {label}
                   {value === 'phone' && (
-                    <span className="ml-auto rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-700">
+                    <span className="ml-auto rounded-sm bg-caution-subtle px-2 py-0.5 text-xs font-medium text-caution">
                       Coming soon
                     </span>
                   )}
                 </span>
               </OptionCard>
               {note && value === 'phone' && (
-                <p className="mt-1 px-1 text-xs text-gray-400">{note}</p>
+                <p className="mt-1 px-1 text-sm text-muted-foreground">{note}</p>
               )}
             </div>
           ))}
@@ -591,20 +594,24 @@ export function OnboardingPage() {
 
   // ── Render ────────────────────────────────────────────────────────────────
   return (
-    <div className="flex min-h-screen items-center justify-center bg-gradient-to-br from-indigo-50 via-white to-purple-50 px-4 py-12">
+    <main className="account-page">
       <div className="w-full max-w-lg">
-        <div className="rounded-2xl bg-white p-8 shadow-xl ring-1 ring-gray-100">
+        <Link to="/" className="account-wordmark">RealCRM</Link>
+        <div className="account-sheet" aria-busy={saving}>
+          <h1 className="sr-only">Set up your workspace</h1>
           <ProgressBar step={step} total={TOTAL_STEPS} />
 
+          <div ref={stepHeading} tabIndex={-1} role="group" aria-label={`Setup step ${step + 1}`}>
           {step === 0 && renderGmailStep()}
           {step === 1 && renderProfileStep()}
           {step === 2 && renderLeadSourcesStep()}
           {step === 3 && renderContactMethodStep()}
           {step === 4 && renderTeamSizeStep()}
           {step === 5 && renderChallengeStep()}
+          </div>
 
           {error && (
-            <p className="mt-4 rounded-lg bg-red-50 px-4 py-2 text-sm text-red-600">
+            <p role="alert" className="account-error mt-4">
               {error}
             </p>
           )}
@@ -614,7 +621,8 @@ export function OnboardingPage() {
               <button
                 type="button"
                 onClick={handleBack}
-                className="flex items-center gap-1 text-sm text-gray-500 hover:text-gray-700"
+                disabled={saving}
+                className="flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground"
               >
                 <ChevronLeft size={16} />
                 Back
@@ -628,7 +636,7 @@ export function OnboardingPage() {
                 <button
                   type="button"
                   onClick={() => setStep(1)}
-                  className="text-sm text-gray-400 hover:text-gray-600"
+                   className="text-sm text-muted-foreground hover:text-foreground"
                 >
                   Skip for now
                 </button>
@@ -650,10 +658,10 @@ export function OnboardingPage() {
           </div>
         </div>
 
-        <p className="mt-4 text-center text-xs text-gray-400">
-          You can update these settings anytime in your account settings.
+        <p className="mt-4 text-sm text-muted-foreground">
+          Your answers are saved together when you finish setup.
         </p>
       </div>
-    </div>
+    </main>
   )
 }

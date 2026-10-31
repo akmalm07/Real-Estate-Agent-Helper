@@ -12,10 +12,10 @@ interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
 }
 
 const variantStyles: Record<ButtonVariant, string> = {
-  primary: 'bg-[#4f46e5] text-white hover:bg-[#4338ca] border border-[#4f46e5]',
-  secondary: 'bg-white text-[#0f172a] hover:bg-[#f9fafb] border border-[#e5e7eb]',
-  ghost: 'bg-transparent text-[#475569] hover:bg-[#f9fafb] hover:text-[#0f172a] border border-transparent',
-  danger: 'bg-red-50 text-red-600 hover:bg-red-100 border border-red-100',
+  primary: 'bg-primary text-primary-foreground hover:bg-primary-hover border border-primary',
+  secondary: 'bg-card text-foreground hover:bg-secondary border border-input',
+  ghost: 'bg-transparent text-muted-foreground hover:bg-secondary hover:text-foreground border border-transparent',
+  danger: 'bg-destructive-subtle text-destructive hover:bg-destructive hover:text-white border border-destructive',
 }
 
 const sizeStyles: Record<ButtonSize, string> = {
@@ -42,17 +42,18 @@ export function Button({
       type={type}
       disabled={disabled || loading}
       className={cn(
-        'inline-flex items-center justify-center font-medium rounded-lg transition-colors focus:outline-none focus:ring-2 focus:ring-[#4f46e5] focus:ring-offset-1 disabled:opacity-50 disabled:cursor-not-allowed',
+        'inline-flex min-h-11 items-center justify-center font-medium rounded-md transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:bg-muted disabled:text-muted-foreground disabled:border-input',
         variantStyles[variant],
         sizeStyles[size],
         className
       )}
       {...props}
+      aria-busy={loading || props['aria-busy']}
     >
       {loading ? (
-        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+        <Loader2 aria-hidden="true" className="w-3.5 h-3.5 animate-spin motion-reduce:animate-none" />
       ) : (
-        icon && <span className="flex-shrink-0">{icon}</span>
+        icon && <span aria-hidden="true" className="flex-shrink-0">{icon}</span>
       )}
       {children}
     </button>

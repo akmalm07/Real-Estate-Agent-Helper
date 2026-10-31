@@ -1,0 +1,137 @@
+{
+  "classification": "SIMULATED-visual / NOT E2E",
+  "route": "http://127.0.0.1:5175/properties",
+  "viewport": {
+    "width": 390,
+    "height": 1000
+  },
+  "pointer": [
+    {
+      "cycle": 1,
+      "nativeClick": [
+        330,
+        500
+      ],
+      "open": {
+        "expanded": "true",
+        "focus": "Close navigation",
+        "focusInside": true,
+        "mainInert": true,
+        "headerInert": true,
+        "backdropInert": false,
+        "drawerWidth": 240,
+        "pageClient": 390,
+        "pageScroll": 390
+      },
+      "dismissed": {
+        "expanded": "false",
+        "focus": "Open navigation",
+        "focusInside": false,
+        "mainInert": false,
+        "headerInert": false,
+        "backdropInert": null,
+        "drawerWidth": 240,
+        "pageClient": 390,
+        "pageScroll": 390
+      }
+    },
+    {
+      "cycle": 2,
+      "nativeClick": [
+        330,
+        500
+      ],
+      "open": {
+        "expanded": "true",
+        "focus": "Close navigation",
+        "focusInside": true,
+        "mainInert": true,
+        "headerInert": true,
+        "backdropInert": false,
+        "drawerWidth": 240,
+        "pageClient": 390,
+        "pageScroll": 390
+      },
+      "dismissed": {
+        "expanded": "false",
+        "focus": "Open navigation",
+        "focusInside": false,
+        "mainInert": false,
+        "headerInert": false,
+        "backdropInert": null,
+        "drawerWidth": 240,
+        "pageClient": 390,
+        "pageScroll": 390
+      }
+    }
+  ],
+  "keyboard": {
+    "initial": {
+      "expanded": "true",
+      "focus": "Close navigation",
+      "focusInside": true,
+      "mainInert": true,
+      "headerInert": true,
+      "backdropInert": false,
+      "drawerWidth": 240,
+      "pageClient": 390,
+      "pageScroll": 390
+    },
+    "reverseWrap": {
+      "expanded": "true",
+      "focus": "Logout",
+      "focusInside": true,
+      "mainInert": true,
+      "headerInert": true,
+      "backdropInert": false,
+      "drawerWidth": 240,
+      "pageClient": 390,
+      "pageScroll": 390
+    },
+    "forwardWrap": {
+      "expanded": "true",
+      "focus": "Close navigation",
+      "focusInside": true,
+      "mainInert": true,
+      "headerInert": true,
+      "backdropInert": false,
+      "drawerWidth": 240,
+      "pageClient": 390,
+      "pageScroll": 390
+    },
+    "backgroundFocusAttempt": {
+      "expanded": "true",
+      "focus": "Close navigation",
+      "focusInside": true,
+      "mainInert": true,
+      "headerInert": true,
+      "backdropInert": false,
+      "drawerWidth": 240,
+      "pageClient": 390,
+      "pageScroll": 390
+    },
+    "escape": {
+      "expanded": "false",
+      "focus": "Open navigation",
+      "focusInside": false,
+      "mainInert": false,
+      "headerInert": false,
+      "backdropInert": null,
+      "drawerWidth": 240,
+      "pageClient": 390,
+      "pageScroll": 390
+    },
+    "close": {
+      "expanded": "false",
+      "focus": "Open navigation",
+      "focusInside": false,
+      "mainInert": false,
+      "headerInert": false,
+      "backdropInert": null,
+      "drawerWidth": 240,
+      "pageClient": 390,
+      "pageScroll": 390
+    }
+  },
+  "mutationRequests": []
+}
